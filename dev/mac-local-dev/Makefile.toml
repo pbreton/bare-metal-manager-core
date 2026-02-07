@@ -1,0 +1,426 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
+# Mac Local Development Tasks
+# Run with: cargo make --makefile dev/mac-local-dev/Makefile.toml <task>
+
+[env]
+REPO_ROOT = { script = ["git rev-parse --show-toplevel"] }
+DOCKER_BUILDKIT = "1"
+
+[config]
+default_to_workspace = false
+
+# ============================================================================
+# Diagnostic Tasks
+# ============================================================================
+
+[tasks.diagnose]
+description = "Diagnose local development environment"
+script = '''
+echo "=== Carbide Local Development Diagnostics ==="
+echo ""
+
+echo "1. Checking required binaries..."
+for cmd in cargo docker jq; do
+  if command -v $cmd >/dev/null 2>&1; then
+    echo "  ✓ $cmd: $(which $cmd)"
+  else
+    echo "  ❌ $cmd: not found"
+  fi
+done
+echo ""
+
+echo "2. Checking Docker..."
+if docker ps >/dev/null 2>&1; then
+  echo "  ✓ Docker is running"
+  CONTAINER_COUNT=$(docker ps -q | wc -l | tr -d ' ')
+  echo "  Running containers: $CONTAINER_COUNT"
+  docker ps | tail -n +2 | awk '{print "    - " $NF}'
+else
+  echo "  ❌ Docker is not running or not accessible"
+fi
+echo ""
+
+echo "3. Checking port 8200 (Vault)..."
+if curl -s http://localhost:8200/v1/sys/health >/dev/null 2>&1; then
+  echo "  ✓ Vault is accessible on port 8200"
+  curl -s http://localhost:8200/v1/sys/health | jq -r '"  Status: initialized=\(.initialized), sealed=\(.sealed)"'
+else
+  echo "  ❌ No vault responding on port 8200"
+  if lsof -i :8200 2>/dev/null | grep -q LISTEN; then
+    echo "  ⚠️  Port 8200 is in use by: $(lsof -i :8200 2>/dev/null | grep LISTEN | awk '{print $1}')"
+  fi
+fi
+echo ""
+
+echo "4. Checking Vault token..."
+if [ -f /tmp/localdev-docker-vault-root-token ]; then
+  echo "  ✓ Token file exists: /tmp/localdev-docker-vault-root-token"
+  TOKEN=$(cat /tmp/localdev-docker-vault-root-token | tr -d '\n\r ')
+  if [ -n "$TOKEN" ] && [ "$TOKEN" != "" ]; then
+    if curl -s -H "X-Vault-Token: $TOKEN" http://localhost:8200/v1/sys/health >/dev/null 2>&1; then
+      echo "  ✓ Token is valid"
+    else
+      echo "  ⚠️  Token exists but may be invalid"
+    fi
+  else
+    echo "  ❌ Token file is empty"
+  fi
+else
+  echo "  ❌ No token file found"
+fi
+echo ""
+
+echo "5. Checking Postgres..."
+if docker ps --format '{{.Names}}' | grep -w pgdev >/dev/null; then
+  echo "  ✓ Postgres container 'pgdev' is running"
+else
+  echo "  ❌ Postgres container 'pgdev' is not running"
+fi
+echo ""
+
+echo "6. Checking environment..."
+if [ -n "${FORGED_DIRECTORY:-}" ]; then
+  echo "  ℹ️  FORGED_DIRECTORY is set: $FORGED_DIRECTORY"
+  if [ -d "$FORGED_DIRECTORY" ]; then
+    echo "    ✓ Directory exists"
+  else
+    echo "    ❌ Directory does not exist"
+  fi
+else
+  echo "  ✓ FORGED_DIRECTORY not set (using dummy OAuth2 credentials)"
+fi
+echo ""
+
+echo "=== Summary ==="
+echo ""
+echo "Next steps:"
+if ! docker ps >/dev/null 2>&1; then
+  echo "  1. Start Docker Desktop"
+elif ! curl -s http://localhost:8200/v1/sys/health >/dev/null 2>&1; then
+  echo "  1. Run: cargo make --makefile dev/mac-local-dev/Makefile.toml run-docker-vault"
+elif [ ! -f /tmp/localdev-docker-vault-root-token ]; then
+  echo "  1. Run: ./dev/mac-local-dev/setup-vault-token.sh"
+else
+  echo "  ✓ Everything looks good! Run: cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide"
+fi
+'''
+
+# ============================================================================
+# Docker Service Tasks
+# ============================================================================
+
+[tasks.check-binaries]
+description = "Check that required binaries are in PATH"
+script = '''
+if ! command -v docker >/dev/null 2>&1; then
+  echo "❌ docker not found"
+  exit 1
+fi
+echo "✓ checked binaries, OK"
+'''
+
+[tasks.run-docker-vault]
+description = "Run docker vault for local development"
+dependencies = ["check-binaries"]
+script = '''
+set -euo pipefail
+
+# Check if vault is already accessible on port 8200
+if curl -s http://localhost:8200/v1/sys/health >/dev/null 2>&1; then
+  echo "✓ Vault is already running on port 8200"
+  # Check if we have a token file already
+  if [ -f /tmp/localdev-docker-vault-root-token ]; then
+    echo "✓ Found existing vault token"
+    exit 0
+  else
+    echo "⚠️  Vault is running but no root token found."
+    echo "   If you're using an existing vault (e.g., in kind cluster),"
+    echo "   please set VAULT_TOKEN environment variable or create /tmp/localdev-docker-vault-root-token"
+    echo ""
+    echo "   For kind cluster vault, try:"
+    echo "   kubectl get secret -n carbide vault-unseal-keys -o jsonpath='{.data.vault-root}' | base64 -d > /tmp/localdev-docker-vault-root-token"
+    exit 1
+  fi
+fi
+
+# Check if standalone vault container exists
+if docker container ls | grep -w vault >/dev/null; then
+  echo "✓ Vault container is already running. Skipping setup"
+  exit 0
+fi
+
+# Try to start vault on port 8200, but handle port conflict
+echo "Starting standalone vault container..."
+if ! docker run --rm --detach --name vault --cap-add=IPC_LOCK \
+  -e 'VAULT_LOCAL_CONFIG={"storage": {"file": {"path": "/vault/file"}}, "listener": [{"tcp": { "address": "0.0.0.0:8200", "tls_disable": true}}], "default_lease_ttl": "168h", "max_lease_ttl": "720h", "ui": true}' \
+  -p 8200:8200 hashicorp/vault:1.20.2 server 2>&1; then
+  echo ""
+  echo "❌ Failed to start vault. Port 8200 may be in use."
+  echo ""
+  echo "If you have a kind cluster or other service using port 8200:"
+  echo "  1. Stop it: kind delete cluster --name carbide-local"
+  echo "  2. Or use the existing vault and set up the token as shown above"
+  exit 1
+fi
+
+# Wait for vault to be ready
+echo "Waiting for vault to be ready..."
+until curl -s http://localhost:8200/v1/sys/health >/dev/null 2>&1; do
+  sleep 1
+done
+
+# Initialize vault
+INIT=$(docker exec vault sh -c "export VAULT_ADDR=http://127.0.0.1:8200; vault operator init -key-shares=1 -key-threshold=1 -format=json")
+UNSEAL_KEY=$(echo $INIT | jq -r ".unseal_keys_b64[0]")
+ROOT_TOKEN=$(echo $INIT | jq -r ".root_token")
+echo $ROOT_TOKEN > /tmp/localdev-docker-vault-root-token
+
+# Configure vault
+docker exec vault sh -c "
+  export VAULT_ADDR=http://127.0.0.1:8200
+  vault operator unseal $UNSEAL_KEY
+  vault login $ROOT_TOKEN
+  vault secrets enable -path=secrets -version=2 kv
+  vault kv delete /secrets/machines/bmc/site/root
+  vault kv delete /secrets/machines/all_dpus/site_default/uefi-metadata-items/auth
+  vault kv delete /secrets/machines/all_hosts/site_default/uefi-metadata-items/auth
+  echo '{\"UsernamePassword\": {\"username\": \"root\", \"password\": \"vault-password\" }}' | vault kv put /secrets/machines/bmc/site/root -
+  echo '{\"UsernamePassword\": {\"username\": \"root\", \"password\": \"vault-password\" }}' | vault kv put /secrets/machines/all_dpus/site_default/uefi-metadata-items/auth -
+  echo '{\"UsernamePassword\": {\"username\": \"root\", \"password\": \"vault-password\" }}' | vault kv put /secrets/machines/all_hosts/site_default/uefi-metadata-items/auth -
+  vault secrets enable -path=certs pki
+  vault write certs/root/generate/internal common_name=myvault.com ttl=87600h
+  vault write certs/config/urls issuing_certificates=\"http://vault.example.com:8200/v1/pki/ca\" crl_distribution_points=\"http://vault.example.com:8200/v1/pki/crl\"
+  vault write certs/roles/role allowed_domains=example.com allow_subdomains=true max_ttl=72h require_cn=false allowed_uri_sans=\"spiffe://forge.local/*\"
+"
+
+echo "✓ Vault initialized successfully"
+echo "  ROOT_TOKEN saved to /tmp/localdev-docker-vault-root-token"
+'''
+
+[tasks.run-docker-postgres]
+description = "Run docker postgres for local development"
+dependencies = ["check-binaries"]
+script = '''
+set -euo pipefail
+
+# Check if pgdev container is already running
+if docker container ls --format '{{.Names}}' | grep -w pgdev >/dev/null; then
+  echo "✓ Postgres container 'pgdev' is already running. Skipping setup"
+  exit 0
+fi
+
+# Generate certificates
+echo "Generating SSL certificates for postgres..."
+cd ${REPO_ROOT}/dev/certs/localhost
+./gen-certs.sh
+
+# Start postgres
+echo "Starting postgres container..."
+docker run --rm --detach --name pgdev --net=host \
+  -e POSTGRES_PASSWORD="admin" \
+  -e POSTGRES_HOST_AUTH_METHOD=trust \
+  -v "$(pwd)/localhost.crt:/var/lib/postgresql/server.crt:ro" \
+  -v "$(pwd)/localhost.key:/var/lib/postgresql/server.key:ro" \
+  postgres:14.5-alpine \
+  -c ssl=on \
+  -c ssl_cert_file=/var/lib/postgresql/server.crt \
+  -c ssl_key_file=/var/lib/postgresql/server.key \
+  -c max_connections=300
+
+echo "✓ Postgres started successfully"
+'''
+
+[tasks.stop-docker]
+description = "Stop docker containers"
+script = '''
+docker stop vault pgdev 2>/dev/null || true
+echo "Stopped docker containers"
+'''
+
+[tasks.clean-postgres]
+description = "Clean postgres database"
+script = '''
+echo "Cleaning carbide postgres DB"
+docker exec pgdev psql -U postgres -c "DROP DATABASE IF EXISTS forge;"
+'''
+
+# ============================================================================
+# Vault Token Tasks
+# ============================================================================
+
+[tasks.get-kind-vault-token]
+description = "Get vault token from kind cluster (if running)"
+script = '''
+set -euo pipefail
+if ! command -v kubectl >/dev/null 2>&1; then
+  echo "❌ kubectl not found. Please install kubectl."
+  exit 1
+fi
+
+echo "Attempting to get vault token from kind cluster..."
+echo "Trying common locations for vault secrets..."
+
+# Try different common locations
+if kubectl get secret -n carbide vault-unseal-keys -o jsonpath='{.data.vault-root}' 2>/dev/null | base64 -d > /tmp/localdev-docker-vault-root-token 2>/dev/null; then
+  echo "✓ Found token in carbide/vault-unseal-keys"
+elif kubectl get secret -n vault vault-unseal-keys -o jsonpath='{.data.vault-root}' 2>/dev/null | base64 -d > /tmp/localdev-docker-vault-root-token 2>/dev/null; then
+  echo "✓ Found token in vault/vault-unseal-keys"
+elif kubectl get secret -n default vault-unseal-keys -o jsonpath='{.data.vault-root}' 2>/dev/null | base64 -d > /tmp/localdev-docker-vault-root-token 2>/dev/null; then
+  echo "✓ Found token in default/vault-unseal-keys"
+else
+  echo ""
+  echo "❌ Could not find vault token in common locations."
+  echo ""
+  echo "Available vault-related secrets:"
+  kubectl get secrets -A | grep -i vault || echo "  (none found)"
+  echo ""
+  echo "Manual steps:"
+  echo "  1. Find the vault secret: kubectl get secrets -A | grep vault"
+  echo "  2. Extract token: kubectl get secret -n <namespace> <secret-name> -o yaml"
+  echo "  3. Save to: /tmp/localdev-docker-vault-root-token"
+  echo ""
+  echo "Or set VAULT_TOKEN environment variable directly:"
+  echo "  export VAULT_TOKEN=your-token-here"
+  exit 1
+fi
+
+echo "✓ Vault token saved to /tmp/localdev-docker-vault-root-token"
+cat /tmp/localdev-docker-vault-root-token
+'''
+
+[tasks.setup-vault-token]
+description = "Run the vault token setup helper script"
+script = '''
+${REPO_ROOT}/dev/mac-local-dev/setup-vault-token.sh
+'''
+
+# ============================================================================
+# Main Carbide API Task
+# ============================================================================
+
+[tasks.run-mac-carbide]
+description = "Run carbide-api on Mac with local development setup"
+dependencies = ["run-docker-vault", "run-docker-postgres"]
+script = '''
+set -euo pipefail
+
+echo ""
+echo "=== Setting up Carbide API environment ==="
+echo ""
+
+# OAuth2 setup (optional - only if FORGED_DIRECTORY is set)
+# Note: bypass_rbac=true and permissive_mode=true are set in the config for local dev
+if [ -n "${FORGED_DIRECTORY:-}" ] && [ -d "$FORGED_DIRECTORY" ]; then
+  echo "✓ FORGED_DIRECTORY found, setting up OAuth2 credentials..."
+  if ! command -v sops >/dev/null 2>&1; then
+    echo "❌ sops not found but FORGED_DIRECTORY is set. Please install sops or unset FORGED_DIRECTORY."
+    exit 1
+  fi
+  export CARBIDE_WEB_OAUTH2_CLIENT_SECRET=$(sops -d $FORGED_DIRECTORY/bases/carbide/api/secrets/azure-carbide-web-sso-NONPRODUCTION.enc.yaml  | sed -En 's/.*client_secret: (.*)/\1/p' | base64 -d)
+  export CARBIDE_WEB_AUTH_TYPE=oauth2
+else
+  echo "✓ Using dummy OAuth2 credentials (auth is bypassed in local dev)"
+  export CARBIDE_WEB_OAUTH2_CLIENT_SECRET="dummy-secret-for-local-dev"
+  export CARBIDE_WEB_AUTH_TYPE=oauth2
+fi
+
+export CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY=$(openssl rand -base64 64)
+export DATABASE_URL="postgresql://postgres:admin@localhost"
+
+export VAULT_ADDR="http://localhost:8200"
+export VAULT_KV_MOUNT_LOCATION="secrets"
+export VAULT_PKI_MOUNT_LOCATION="certs"
+export VAULT_PKI_ROLE_NAME="role"
+
+# Get vault token - check environment variable first, then file
+if [ -n "${VAULT_TOKEN:-}" ]; then
+  echo "✓ Using VAULT_TOKEN from environment"
+elif [ -f /tmp/localdev-docker-vault-root-token ]; then
+  export VAULT_TOKEN=$(cat /tmp/localdev-docker-vault-root-token)
+  echo "✓ Vault token loaded from /tmp/localdev-docker-vault-root-token"
+else
+  echo ""
+  echo "❌ No vault token found!"
+  echo ""
+  echo "Options:"
+  echo "  1. Use existing kind cluster vault:"
+  echo "     cargo make --makefile dev/mac-local-dev/Makefile.toml get-kind-vault-token"
+  echo ""
+  echo "  2. Provide token via environment variable:"
+  echo "     export VAULT_TOKEN=your-token"
+  echo "     cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide"
+  echo ""
+  echo "  3. Stop existing services and create new vault:"
+  echo "     cargo make --makefile dev/mac-local-dev/Makefile.toml stop-docker"
+  echo "     kind delete cluster --name carbide-local  # if exists"
+  echo "     cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide"
+  exit 1
+fi
+
+# Create firmware directory
+if [ ! -d /opt/carbide/firmware ]; then
+  echo "Creating /opt/carbide/firmware directory (may ask for password)..."
+  sudo mkdir -p /opt/carbide/firmware
+fi
+
+echo ""
+echo "=== Running database migrations ==="
+echo ""
+cargo run --package carbide-api --no-default-features migrate || true
+
+echo ""
+echo "=== Starting Carbide API ==="
+echo ""
+echo "⚠️  NOTE: Mac builds currently have compilation issues due to missing feature guards."
+echo "   See dev/mac-local-dev/MAC_BUILD_STATUS.md for solutions."
+echo ""
+RUST_BACKTRACE=1 cargo run --package carbide-api --no-default-features -- run --config-path dev/mac-local-dev/carbide-api-config.toml
+'''
+
+# ============================================================================
+# Helper/Alias Tasks
+# ============================================================================
+
+[tasks.default]
+alias = "run-mac-carbide"
+
+[tasks.start]
+alias = "run-mac-carbide"
+
+[tasks.help]
+description = "Show available tasks"
+script = '''
+echo "Carbide Mac Local Development Tasks"
+echo ""
+echo "Main tasks:"
+echo "  cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide"
+echo "    - Run carbide-api with all setup"
+echo ""
+echo "Diagnostic tasks:"
+echo "  cargo make --makefile dev/mac-local-dev/Makefile.toml diagnose"
+echo "    - Check environment status"
+echo "  cargo make --makefile dev/mac-local-dev/Makefile.toml setup-vault-token"
+echo "    - Configure vault token automatically"
+echo ""
+echo "Docker service tasks:"
+echo "  cargo make --makefile dev/mac-local-dev/Makefile.toml run-docker-vault"
+echo "  cargo make --makefile dev/mac-local-dev/Makefile.toml run-docker-postgres"
+echo "  cargo make --makefile dev/mac-local-dev/Makefile.toml stop-docker"
+echo ""
+echo "Database tasks:"
+echo "  cargo make --makefile dev/mac-local-dev/Makefile.toml clean-postgres"
+echo ""
+echo "Vault tasks:"
+echo "  cargo make --makefile dev/mac-local-dev/Makefile.toml get-kind-vault-token"
+echo ""
+echo "For more details, see: dev/mac-local-dev/README.md"
+'''

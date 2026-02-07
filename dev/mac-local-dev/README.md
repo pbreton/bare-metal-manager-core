@@ -7,11 +7,136 @@ Notes:
 Assumptions:
 - ~/.config/sops/age/keys.txt exists with content similar to 'AGE-SECRET-KEY-1MUQYH7VZ9RZ5ZWQ602A3ZCEJXU0T03W59C0C7S59RZ5TUVD70N5Q8239HT'
 
-## To run carbide from the carbide directory:
+## ⚠️  Current Status
+
+**Mac builds are currently broken** due to missing feature guards in the codebase. See [MAC_BUILD_STATUS.md](MAC_BUILD_STATUS.md) for details and solutions.
+
+The same issue exists in the old `nvmetal/carbide` repository, so this is a pre-existing problem with the codebase.
+
+### Quick Workarounds
+
+1. **Use Docker** (recommended): Run in a Linux container
+2. **Apply the fix**: Run `./dev/mac-local-dev/apply-mac-fix.sh` (experimental)
+3. **Use remote development**: SSH to a Linux machine
+
+See [MAC_BUILD_STATUS.md](MAC_BUILD_STATUS.md) for detailed instructions.
+
+---
+
+## Quick Start
+
+### One-Time Setup
+
+1. **Install cargo-make:**
+   ```bash
+   cargo install cargo-make
+   ```
+
+2. **Create an alias (optional but recommended):**
+   ```bash
+   echo "alias mm='cargo make --makefile dev/mac-local-dev/Makefile.toml'" >> ~/.zshrc
+   source ~/.zshrc
+   ```
+   Now you can use `mm` instead of the long command!
+
+### Prerequisites
+
+- Docker Desktop (running)
+- Rust toolchain
+- `cargo-make` installed
+
+### Running Carbide API
+
+#### Option 1: Fresh standalone setup (recommended for simple testing)
+
+If you don't have any existing services running:
+
 ```bash
-SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt FORGED_DIRECTORY="$(pwd)/../forged" just run-mac-carbide
+cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
 ```
-This will setup everything and run carbide-api binary.
+
+This will:
+1. Start a standalone Docker Vault container on port 8200
+2. Start Docker Postgres with SSL certificates  
+3. Configure Vault with necessary secrets
+4. Run database migrations
+5. Start carbide-api with auth bypassed for local dev
+
+#### Option 2: Using existing kind cluster vault
+
+If you have a kind cluster with vault already running (like `carbide-local`):
+
+```bash
+# Get the vault token from your kind cluster
+cargo make --makefile dev/mac-local-dev/Makefile.toml get-kind-vault-token
+
+# Run carbide-api (will detect and use the existing vault)
+cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
+```
+
+**Note:** If you see "Port 8200 already in use", you likely have a kind cluster running. Use Option 2.
+
+**Shorter command:** You can create an alias:
+```bash
+alias mm='cargo make --makefile dev/mac-local-dev/Makefile.toml'
+mm run-mac-carbide
+```
+
+### Verification
+
+Once carbide-api is running, verify with:
+```bash
+grpcurl -plaintext localhost:1079 list
+```
+
+### Troubleshooting
+
+If you encounter any issues, run the setup helper:
+
+```bash
+cargo make --makefile dev/mac-local-dev/Makefile.toml setup-vault-token
+# or directly:
+./dev/mac-local-dev/setup-vault-token.sh
+```
+
+This will detect your environment and guide you through the setup.
+
+For detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+
+**Quick fixes:**
+
+- **Port 8200 in use:** Run `cargo make --makefile dev/mac-local-dev/Makefile.toml setup-vault-token`
+- **No vault token:** Run `cargo make --makefile dev/mac-local-dev/Makefile.toml setup-vault-token`
+- **SOPS errors:** Run `unset FORGED_DIRECTORY` (auth is bypassed in local dev)
+- **Start fresh:** Run `cargo make --makefile dev/mac-local-dev/Makefile.toml stop-docker` then run again
+
+### Available Tasks
+
+View all available tasks:
+```bash
+cargo make --makefile dev/mac-local-dev/Makefile.toml help
+```
+
+Common tasks:
+- `run-mac-carbide` - Main task to run carbide-api
+- `diagnose` - Check environment status
+- `setup-vault-token` - Configure vault token
+- `run-docker-vault` - Start vault container
+- `run-docker-postgres` - Start postgres container
+- `stop-docker` - Stop all containers
+- `clean-postgres` - Clean database
+- `get-kind-vault-token` - Extract token from kind cluster
+
+### Optional: Using Real OAuth2 Credentials
+
+The config uses `bypass_rbac = true` and `permissive_mode = true` for local development, so OAuth2 credentials are not required. However, if you need real OAuth2 credentials (e.g., for testing auth flows):
+
+```bash
+# Set FORGED_DIRECTORY before running
+export FORGED_DIRECTORY=/Users/pbreton/Documents/nvmetal/forged
+export SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt
+cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
+```
 
 You can verify carbide-api is running by doing:
 ```bash

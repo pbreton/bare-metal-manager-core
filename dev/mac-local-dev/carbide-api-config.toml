@@ -42,10 +42,10 @@ hardware_health_reports = "MonitorOnly"
 autoupdate = true
 
 [tls]
-identity_pemfile_path = "/Users/fchua/repos/carbide/dev/certs/localhost/localhost.crt"
-identity_keyfile_path = "/Users/fchua/repos/carbide/dev/certs/localhost/localhost.key"
-root_cafile_path = "/Users/fchua/repos/carbide/dev/certs/localhost/ca.crt"
-admin_root_cafile_path = "/Users/fchua/repos/carbide/dev/certs/forge_root.pem"
+identity_pemfile_path = "dev/certs/localhost/localhost.crt"
+identity_keyfile_path = "dev/certs/localhost/localhost.key"
+root_cafile_path = "dev/certs/localhost/ca.crt"
+admin_root_cafile_path = "dev/certs/forge_root.pem"
 
 [auth]
 permissive_mode = true
