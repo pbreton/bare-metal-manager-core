@@ -23,6 +23,25 @@ Carbide-api now uses a **dedicated vault container** that won't interfere with y
 cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
 ```
 
+### Access Web UI
+Open in your browser: **https://localhost:1079/admin**
+
+⚠️ Accept the self-signed certificate warning in your browser.
+
+Available pages:
+- **Main Dashboard**: https://localhost:1079/admin/
+- **Machines/DPUs**: https://localhost:1079/admin/dpu
+- **Explored Endpoints**: https://localhost:1079/admin/explored-endpoint
+- **Network Segments**: https://localhost:1079/admin/network-segment
+- **Domains**: https://localhost:1079/admin/domain
+
+### Access gRPC
+```bash
+grpcurl -insecure localhost:1079 list
+```
+
+Both web UI and gRPC work simultaneously with TLS mode!
+
 ### Check Status
 ```bash
 cargo make --makefile dev/mac-local-dev/Makefile.toml diagnose

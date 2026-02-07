@@ -40,6 +40,10 @@ If you don't have any existing services running:
 cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
 ```
 
+Once running, open the web UI in your browser: **https://localhost:1079/admin**
+
+⚠️ **Note:** You'll see a security warning because the certificate is self-signed. Click "Advanced" → "Proceed to localhost" to continue.
+
 This will automatically:
 1. Start a **dedicated** Docker Vault container on port **8201** (avoids conflicts with other vaults)
 2. Start Docker Postgres with SSL certificates (or detect existing one)
@@ -136,13 +140,39 @@ export CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY=$(openssl rand -base64 64)
 cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
 ```
 
-You can verify carbide-api is running by doing:
+## Accessing the Web UI
+
+Once carbide-api is running, you can access the web interface in your browser:
+
+**Web UI:** https://localhost:1079/admin
+
+⚠️ **Self-signed Certificate Warning:** You'll see a browser security warning. This is expected for local development:
+- **Chrome/Edge**: Click "Advanced" → "Proceed to localhost (unsafe)"
+- **Firefox**: Click "Advanced" → "Accept the Risk and Continue"
+- **Safari**: Click "Show Details" → "visit this website"
+
+**📖 For a complete list of all available pages, see [WEB_UI.md](./WEB_UI.md)**
+
+The web interface provides views for:
+- **Machines** (DPUs, Hosts, Switches): https://localhost:1079/admin/dpu
+- **Explored Endpoints**: https://localhost:1079/admin/explored-endpoint
+- **Network Segments**: https://localhost:1079/admin/network-segment
+- **Domains**: https://localhost:1079/admin/domain
+- **DPU Versions**: https://localhost:1079/admin/dpu/versions
+- **Racks**: https://localhost:1079/admin/rack
+- **And more...**
+
+**Authentication**: With `bypass_rbac = true` and `permissive_mode = true` in the local dev config, authentication is bypassed. For basic auth prompts, use any credentials (e.g., `admin` / `Welcome123`).
+
+## Verify gRPC Service
+
+You can also verify the gRPC API is running:
 ```bash
-grpcurl -plaintext localhost:1079 list 
-````
-If you configure carbide to run with TLS , you can do:
-```bash
+# List gRPC services (use -insecure for self-signed cert)
 grpcurl -insecure localhost:1079 list
+
+# Describe a service
+grpcurl -insecure localhost:1079 describe forge.Forge
 ```
 
 ## To run carbide in IntelliJ/RustRover IDE

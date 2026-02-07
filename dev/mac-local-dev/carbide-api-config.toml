@@ -1,5 +1,5 @@
 listen = "[::]:1079"
-listen_mode = "plaintext_http2"
+listen_mode = "tls"
 metrics_endpoint = "[::]:1080"
 database_url = "postgresql://postgres:admin@localhost"
 asn = 4294967000
