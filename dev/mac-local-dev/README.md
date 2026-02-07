@@ -40,12 +40,14 @@ If you don't have any existing services running:
 cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
 ```
 
-This will:
-1. Start a standalone Docker Vault container on port 8200
-2. Start Docker Postgres with SSL certificates  
-3. Configure Vault with necessary secrets
+This will automatically:
+1. Start a **dedicated** Docker Vault container on port **8201** (avoids conflicts with other vaults)
+2. Start Docker Postgres with SSL certificates (or detect existing one)
+3. Initialize Vault with necessary secrets (BMC credentials, PKI config, etc.)
 4. Run database migrations
 5. Start carbide-api with auth bypassed for local dev
+
+**Note:** Carbide-api uses its own dedicated vault on port 8201, so it won't interfere with any existing vault instances (e.g., kind cluster vault on port 8200).
 
 #### Option 2: Using existing kind cluster vault
 
@@ -99,14 +101,13 @@ cargo make --makefile dev/mac-local-dev/Makefile.toml help
 ```
 
 Common tasks:
-- `run-mac-carbide` - Main task to run carbide-api
+- `run-mac-carbide` - Main task to run carbide-api (runs all setup automatically)
 - `diagnose` - Check environment status
-- `setup-vault-token` - Configure vault token
-- `run-docker-vault` - Start vault container
+- `run-docker-vault` - Start dedicated carbide vault container (port 8201)
 - `run-docker-postgres` - Start postgres container
-- `stop-docker` - Stop all containers
+- `stop-docker` - Stop carbide containers (doesn't affect other vaults)
 - `clean-postgres` - Clean database
-- `get-kind-vault-token` - Extract token from kind cluster
+- `get-kind-vault-token` - Extract token from kind cluster (for debugging)
 
 ### Authentication Mode
 

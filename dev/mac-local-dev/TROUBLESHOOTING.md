@@ -2,57 +2,39 @@
 
 ## Common Issues and Solutions
 
-### 1. Port 8200 Already in Use
+### 1. Port Conflicts (RESOLVED)
 
-**Error:**
-```
-docker: Error response from daemon: Bind for 0.0.0.0:8200 failed: port is already allocated
-```
+Carbide-api now uses its own **dedicated vault on port 8201**, so it won't conflict with other vault instances (e.g., kind cluster on port 8200).
 
-**Cause:** Another service (likely a kind cluster or existing vault) is using port 8200.
-
-**Solutions:**
-
-**Option A: Use the existing vault (recommended)**
+If you see any port conflicts:
 ```bash
-# Run the helper script to detect and configure the token
-cargo make --makefile dev/mac-local-dev/Makefile.toml setup-vault-token
-
-# Then run carbide-api
-cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
+# Check current status
+cargo make --makefile dev/mac-local-dev/Makefile.toml diagnose
 ```
 
-**Option B: Stop the conflicting service**
-```bash
-# If it's a kind cluster
-kind delete cluster --name carbide-local
+This will show:
+- Carbide vault on port 8201 (dedicated for carbide-api)
+- Other vaults (if any) on port 8200 (your existing services)
 
-# If it's a standalone vault container
-docker stop vault
-
-# Then run carbide-api
-cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
-```
+No action needed - they coexist peacefully!
 
 ### 2. Missing Vault Token
 
 **Error:**
 ```
-❌ No vault token found!
+❌ No vault token found at /tmp/carbide-localdev-vault-root-token
 ```
+
+**Cause:** Carbide vault didn't initialize properly.
 
 **Solution:**
 ```bash
-# Try the automatic setup
-cargo make --makefile dev/mac-local-dev/Makefile.toml setup-vault-token
-
-# Or manually get it from kind cluster
-cargo make --makefile dev/mac-local-dev/Makefile.toml get-kind-vault-token
-
-# Or provide it via environment variable
-export VAULT_TOKEN=your-token-here
-cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
+# Restart carbide vault
+cargo make --makefile dev/mac-local-dev/Makefile.toml stop-docker
+cargo make --makefile dev/mac-local-dev/Makefile.toml run-docker-vault
 ```
+
+The token file should be automatically created at `/tmp/carbide-localdev-vault-root-token`.
 
 ### 3. Missing OAuth2 Environment Variables
 
@@ -116,7 +98,27 @@ cargo make --makefile dev/mac-local-dev/Makefile.toml clean-postgres
 cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
 ```
 
-### 7. Permission Denied on /opt/carbide/firmware
+### 7. Vault Secrets Missing (SiteExplorer Errors)
+
+**Error:**
+```
+level=ERROR msg="SiteExplorer run failed due to: Internal { message: \"Missing credential machines/bmc/site/root\" }"
+```
+
+**Cause:** Vault is running but doesn't have the required secrets configured.
+
+**Solution:**
+```bash
+# Populate vault with required secrets
+cargo make --makefile dev/mac-local-dev/Makefile.toml populate-vault-secrets
+
+# Or run the script directly
+VAULT_ADDR=http://localhost:8200 VAULT_TOKEN=root ./dev/mac-local-dev/populate-vault-secrets.sh
+```
+
+**Note:** `run-mac-carbide` now automatically runs `populate-vault-secrets`, so this should only happen if vault was set up externally.
+
+### 8. Permission Denied on /opt/carbide/firmware
 
 **Error:** `sudo mkdir` fails or requires password
 
@@ -127,35 +129,35 @@ cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
 To start completely fresh:
 
 ```bash
-# Stop all containers
+# Stop carbide containers only (doesn't affect other services)
 cargo make --makefile dev/mac-local-dev/Makefile.toml stop-docker
-docker rm -f pgdev vault 2>/dev/null || true
+docker rm -f pgdev carbide-vault 2>/dev/null || true
 
-# Clean tokens
-rm -f /tmp/localdev-docker-vault-root-token
-
-# Stop kind cluster if running
-kind delete cluster --name carbide-local
+# Clean token
+rm -f /tmp/carbide-localdev-vault-root-token
 
 # Start fresh
 cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
 ```
 
+**Note:** This only affects carbide-api's dedicated containers. Your kind cluster or other vaults remain untouched.
+
 ## Diagnostic Commands
 
 ```bash
-# Check if required tools are installed
-cargo make --version
-which docker cargo sops kubectl
+# Run the full diagnostic
+cargo make --makefile dev/mac-local-dev/Makefile.toml diagnose
 
 # Check if Docker is running
 docker ps
 
-# Check what's using port 8200
-lsof -i :8200
+# Check carbide vault status (port 8201)
+curl -s http://localhost:8201/v1/sys/health | jq
 
-# Check vault status
-curl -s http://localhost:8200/v1/sys/health | jq
+# Check what's using ports
+lsof -i :8200  # Other vaults
+lsof -i :8201  # Carbide vault
+lsof -i :5432  # Postgres
 
 # Check if postgres is responding
 psql -h localhost -U postgres -c "SELECT version();"
@@ -168,11 +170,10 @@ grpcurl -plaintext localhost:1079 list
 
 If you're still having issues:
 
-1. Check the full error output
-2. Review this troubleshooting guide
-3. Try the "Quick Reset" steps above
-4. Check if you have a kind cluster that might be conflicting:
+1. Run the diagnostic:
    ```bash
-   kind get clusters
-   docker ps
+   cargo make --makefile dev/mac-local-dev/Makefile.toml diagnose
    ```
+2. Check the full error output in terminal
+3. Review this troubleshooting guide
+4. Try the "Quick Reset" steps above
