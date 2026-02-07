@@ -1,25 +1,10 @@
-# Local Carbide API (without machine-a-tron for now)
+# Local Carbide API Development on Mac
 
-Notes:
-- technically you can start machine-a-tron but it is useless on a Mac since its magic relies on Linux-specific features. It may work in docker on Mac...
-- which is why we should run carbide on Mac in docker too. But for now this run native on Mac.
+## ✅ Status: Mac Builds Working!
 
-Assumptions:
-- ~/.config/sops/age/keys.txt exists with content similar to 'AGE-SECRET-KEY-1MUQYH7VZ9RZ5ZWQ602A3ZCEJXU0T03W59C0C7S59RZ5TUVD70N5Q8239HT'
+Mac builds are now working! The measured_boot compilation issue has been fixed with surgical feature guards.
 
-## ⚠️  Current Status
-
-**Mac builds are currently broken** due to missing feature guards in the codebase. See [MAC_BUILD_STATUS.md](MAC_BUILD_STATUS.md) for details and solutions.
-
-The same issue exists in the old `nvmetal/carbide` repository, so this is a pre-existing problem with the codebase.
-
-### Quick Workarounds
-
-1. **Use Docker** (recommended): Run in a Linux container
-2. **Apply the fix**: Run `./dev/mac-local-dev/apply-mac-fix.sh` (experimental)
-3. **Use remote development**: SSH to a Linux machine
-
-See [MAC_BUILD_STATUS.md](MAC_BUILD_STATUS.md) for detailed instructions.
+**Note:** TPM/attestation features return errors on Mac (requires Linux + TPM hardware), but all other functionality works.
 
 ---
 
@@ -91,15 +76,11 @@ grpcurl -plaintext localhost:1079 list
 
 ### Troubleshooting
 
-If you encounter any issues, run the setup helper:
+If you encounter any issues, run the diagnostic:
 
 ```bash
-cargo make --makefile dev/mac-local-dev/Makefile.toml setup-vault-token
-# or directly:
-./dev/mac-local-dev/setup-vault-token.sh
+cargo make --makefile dev/mac-local-dev/Makefile.toml diagnose
 ```
-
-This will detect your environment and guide you through the setup.
 
 For detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 
@@ -107,7 +88,7 @@ For detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 
 - **Port 8200 in use:** Run `cargo make --makefile dev/mac-local-dev/Makefile.toml setup-vault-token`
 - **No vault token:** Run `cargo make --makefile dev/mac-local-dev/Makefile.toml setup-vault-token`
-- **SOPS errors:** Run `unset FORGED_DIRECTORY` (auth is bypassed in local dev)
+- **OAuth2 env errors:** Don't set `CARBIDE_WEB_AUTH_TYPE` or set it to `basic` (default)
 - **Start fresh:** Run `cargo make --makefile dev/mac-local-dev/Makefile.toml stop-docker` then run again
 
 ### Available Tasks
@@ -127,14 +108,30 @@ Common tasks:
 - `clean-postgres` - Clean database
 - `get-kind-vault-token` - Extract token from kind cluster
 
-### Optional: Using Real OAuth2 Credentials
+### Authentication Mode
 
-The config uses `bypass_rbac = true` and `permissive_mode = true` for local development, so OAuth2 credentials are not required. However, if you need real OAuth2 credentials (e.g., for testing auth flows):
+The local development config uses:
+- `bypass_rbac = true` - No authorization checks
+- `permissive_mode = true` - Permissive authentication
+- `CARBIDE_WEB_AUTH_TYPE=basic` - Simple auth mode (default)
+
+This means you can access the API without any credentials!
+
+#### Optional: Enable OAuth2 Mode
+
+If you need to test OAuth2 flows, set these environment variables before running:
 
 ```bash
-# Set FORGED_DIRECTORY before running
-export FORGED_DIRECTORY=/Users/pbreton/Documents/nvmetal/forged
-export SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt
+export CARBIDE_WEB_AUTH_TYPE=oauth2
+export CARBIDE_WEB_OAUTH2_CLIENT_ID=your-client-id
+export CARBIDE_WEB_OAUTH2_CLIENT_SECRET=your-client-secret
+export CARBIDE_WEB_OAUTH2_AUTH_ENDPOINT=https://login.microsoftonline.com/.../oauth2/v2.0/authorize
+export CARBIDE_WEB_OAUTH2_TOKEN_ENDPOINT=https://login.microsoftonline.com/.../oauth2/v2.0/token
+export CARBIDE_WEB_ALLOWED_ACCESS_GROUPS=group1,group2
+export CARBIDE_WEB_ALLOWED_ACCESS_GROUPS_ID_LIST=id1,id2
+export CARBIDE_WEB_HOSTNAME=localhost:1079
+export CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY=$(openssl rand -base64 64)
+
 cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
 ```
 

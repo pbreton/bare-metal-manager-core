@@ -54,29 +54,30 @@ export VAULT_TOKEN=your-token-here
 cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
 ```
 
-### 3. SOPS_AGE_KEY_FILE Issues
+### 3. Missing OAuth2 Environment Variables
 
 **Error:**
 ```
-Failed to get the data key required to decrypt the SOPS file
+Error: Internal error: CARBIDE_WEB_ALLOWED_ACCESS_GROUPS: environment variable not found
 ```
 
-**Cause:** You have `FORGED_DIRECTORY` set but SOPS can't decrypt the secrets.
+**Cause:** `CARBIDE_WEB_AUTH_TYPE=oauth2` is set but required OAuth2 variables are missing.
 
 **Solution:**
 
-**Option A: Unset FORGED_DIRECTORY (recommended for local dev)**
+**Option A: Use basic auth (recommended for local dev)**
 ```bash
-unset FORGED_DIRECTORY
+# Don't set CARBIDE_WEB_AUTH_TYPE, or set it to basic
+unset CARBIDE_WEB_AUTH_TYPE
+# or
+export CARBIDE_WEB_AUTH_TYPE=basic
+
 cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
 ```
-Auth is bypassed in local dev mode, so you don't need real OAuth2 credentials.
+Auth is bypassed in local dev mode (bypass_rbac=true), so OAuth2 is not needed.
 
-**Option B: Configure SOPS properly**
-```bash
-export SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt
-# Make sure the key file exists and has the correct key
-```
+**Option B: Configure full OAuth2 (only if testing OAuth2 flows)**
+Set all required environment variables - see README.md "Enable OAuth2 Mode" section.
 
 ### 4. Postgres Already Running
 

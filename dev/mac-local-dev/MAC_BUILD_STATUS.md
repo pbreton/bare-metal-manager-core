@@ -1,46 +1,54 @@
 # Mac Build Status
 
-## Current Issue
+## ✅ FIXED - Mac builds now work!
 
-The carbide-core codebase currently **cannot be built on Mac** with `--no-default-features` due to missing feature guards on `measured_boot` handlers in the API code.
+The carbide-core codebase can now be built on Mac with `--no-default-features`.
 
-### Error
+### What Was Fixed
 
-```
-error[E0433]: failed to resolve: could not find `measured_boot` in `handlers`
-```
+The measured_boot compilation issue has been resolved with a surgical fix:
 
-This occurs because:
-1. The `measured_boot` module is gated behind `#[cfg(feature = "linux-build")]`
-2. The API trait implementations call `measured_boot` handlers without feature guards
-3. When building with `--no-default-features` (required for Mac), the module doesn't exist but the calls remain
+1. ✅ Removed the feature guard from `handlers/measured_boot` module - now always available
+2. ✅ Added feature guards only around Linux-specific TPM/attestation functions
+3. ✅ Non-Linux platforms return `Status::unimplemented()` for TPM attestation features
+4. ✅ All other measured_boot functionality (profiles, reports, bundles, etc.) works on Mac
 
-### Confirmed
+### Technical Details
 
-- ✅ The old `nvmetal/carbide` repo **also fails** with the same error
-- ✅ Using default features (which includes `linux-build`) **also fails** on Mac due to Linux-only dependencies (libudev, procfs)
+The issue was:
+- The `measured_boot` module was gated behind `#[cfg(feature = "linux-build")]`
+- This made ~43 gRPC trait implementations fail to compile
+- Only a small part of measured_boot (TPM attestation with `tss_esapi`) requires Linux
 
-## Options to Run Carbide-API on Mac
+The fix:
+- Keep measured_boot handlers available on all platforms
+- Gate only the `attestation::measured_boot` functions that use `tss_esapi`
+- Return runtime errors for TPM features on non-Linux platforms
 
-### Option 1: Fix the Code (Recommended for Long-term)
+### Verified
 
-Add proper feature guards to all `measured_boot` handler calls in `crates/api/src/api.rs`.
+- ✅ `cargo check --package carbide-api --no-default-features` succeeds
+- ✅ All gRPC services compile and are available
+- ✅ TPM/attestation features return proper error messages on Mac
 
-**Estimated effort:** 2-4 hours to add `#[cfg(feature = "linux-build")]` to ~43 trait method implementations
+## Running Carbide-API on Mac
 
-**Steps:**
-1. Wrap each `measured_boot` handler call with `#[cfg(feature = "linux-build")]`
-2. Add stub implementations that return "Not supported" errors for non-Linux builds
-3. Test compilation on Mac
-4. Submit PR to fix this properly
+### Native Mac Build (Recommended)
 
-### Option 2: Use Docker/Lima (Quick Workaround)
+You can now run carbide-api natively on Mac!
 
-Run carbide-api in a Linux container on Mac.
-
-**Setup:**
+Simply run:
 ```bash
-# Using Docker
+cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
+```
+
+**Note:** TPM/attestation features will return errors on Mac (requires Linux with TPM hardware), but all other functionality works.
+
+### Alternative: Docker/Lima (For Full TPM Support)
+
+If you need TPM/attestation features, run in a Linux container:
+
+```bash
 docker run -it --rm -v $(pwd):/workspace -w /workspace \
   -p 1079:1079 -p 1080:1080 \
   --network host \
@@ -48,47 +56,33 @@ docker run -it --rm -v $(pwd):/workspace -w /workspace \
 
 # Inside container
 apt-get update && apt-get install -y libssl-dev pkg-config
-just run-mac-carbide
+cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
 ```
 
-Or use Lima/Colima for a better Linux VM experience.
+## Testing
 
-### Option 3: Use Remote Development
-
-Use VS Code Remote SSH or similar to develop on a Linux machine.
-
-### Option 4: Accept Partial Functionality
-
-Modify the code to skip measured_boot handlers for Mac builds (not recommended for production).
-
-## Recommendation
-
-For immediate use: **Option 2** (Docker/Lima)
-
-For long-term: **Option 1** (Fix the code and contribute back)
-
-The justfile and setup scripts we created will work once the code compilation issue is resolved.
-
-## Testing the Fix
-
-Once the code is fixed, you can test with:
+Verify the build works:
 
 ```bash
 # Should compile successfully
 cargo check --package carbide-api --no-default-features
 
-# Should run successfully
-just run-mac-carbide
+# Should run successfully  
+cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
 ```
 
-## Related Files
+## Implementation Details
 
-- `crates/api/src/api.rs` - Contains the trait implementations that need feature guards
-- `crates/api/src/handlers/mod.rs` - Already has proper feature guards on the module
-- `crates/api/Cargo.toml` - Defines the `linux-build` feature
+**Files Modified:**
+- `crates/api/src/handlers/mod.rs` - Removed feature guard from measured_boot module
+- `crates/api/src/lib.rs` - Made measured_boot module public
+- `crates/api/src/handlers/measured_boot.rs` - Added feature guards around TPM-specific code
+
+**Feature Gating Strategy:**
+- Module always available → gRPC trait implementations work
+- Only TPM/attestation functions gated → returns runtime error on Mac
+- Database, business logic, etc. all work cross-platform
 
 ## Note
 
-The infrastructure we set up (Makefile.toml tasks, vault setup, postgres, diagnostics) is all working correctly. The only blocker is the Rust compilation issue with feature flags.
-
-All Mac-specific development tasks are self-contained in `dev/mac-local-dev/Makefile.toml`.
+All Mac-specific development tasks are self-contained in `dev/mac-local-dev/Makefile.toml`. The infrastructure (vault, postgres, diagnostics) is working correctly, and now the code compiles too!

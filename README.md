@@ -16,11 +16,11 @@ the complexity of the bare-metal lifecycle, putting NCPs and ISVs on the fast tr
 
 ### Running Carbide API on Mac
 
-⚠️ **Current Status**: Mac builds are currently blocked by missing feature guards in the codebase. See [dev/mac-local-dev/MAC_BUILD_STATUS.md](dev/mac-local-dev/MAC_BUILD_STATUS.md) for details and workarounds.
+✅ **Mac builds now work!** The measured_boot compilation issue has been fixed.
 
 Mac-specific development tasks are in `dev/mac-local-dev/Makefile.toml`.
 
-**Quick Start (once build issue is resolved):**
+**Quick Start:**
 
 ```bash
 # Install cargo-make if you haven't already
@@ -30,18 +30,7 @@ cargo install cargo-make
 cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
 ```
 
-**Current Workaround:**
-
-Use Docker to run in a Linux environment:
-```bash
-docker run -it --rm -v $(pwd):/workspace -w /workspace \
-  -p 1079:1079 -p 1080:1080 --network host \
-  rust:latest bash
-
-# Inside container
-apt-get update && apt-get install -y libssl-dev pkg-config
-cargo make --makefile dev/mac-local-dev/Makefile.toml run-mac-carbide
-```
+**Note:** TPM/attestation features return errors on Mac (requires Linux + TPM hardware), but all other functionality works.
 
 If you encounter any issues (port conflicts, missing tokens, etc.):
 

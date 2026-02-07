@@ -13,40 +13,53 @@
 use ::rpc::protos::measured_boot as pb;
 pub use ::rpc::{forge as rpc_forge, machine_discovery as rpc_md};
 use carbide_uuid::machine::MachineId;
+#[cfg(feature = "linux-build")]
 use db::attestation::secret_ak_pub;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
 use crate::measured_boot::rpc::{bundle, journal, machine, profile, report, site};
+#[cfg(feature = "linux-build")]
 use crate::{CarbideError, attestation as attest};
 
+#[allow(dead_code)] // Only used on Linux builds
 pub(crate) async fn create_attest_key_bind_challenge(
     txn: &mut PgConnection,
     attest_key_info: &rpc_md::AttestKeyInfo,
     machine_id: &MachineId,
 ) -> Result<rpc_forge::AttestKeyBindChallenge, Status> {
-    let (matched, ek_pub_rsa) =
-        attest::compare_pub_key_against_cert(txn, machine_id, attest_key_info.ek_pub.as_ref())
-            .await?;
-    if !matched {
-        return Err(Status::from(CarbideError::AttestBindKeyError(
-            "Certificate's public key did not match EK Pub Key".to_string(),
-        )));
+    #[cfg(feature = "linux-build")]
+    {
+        let (matched, ek_pub_rsa) =
+            attest::compare_pub_key_against_cert(txn, machine_id, attest_key_info.ek_pub.as_ref())
+                .await?;
+        if !matched {
+            return Err(Status::from(CarbideError::AttestBindKeyError(
+                "Certificate's public key did not match EK Pub Key".to_string(),
+            )));
+        }
+
+        // generate a secret/credential
+        let secret_bytes: [u8; 32] = rand::random();
+
+        let (cli_cred_blob, cli_secret) =
+            attest::cli_make_cred(ek_pub_rsa, &attest_key_info.ak_name, &secret_bytes)?;
+
+        secret_ak_pub::insert(txn, &Vec::from(secret_bytes), &attest_key_info.ak_pub).await?;
+
+        Ok(rpc_forge::AttestKeyBindChallenge {
+            cred_blob: cli_cred_blob,
+            encrypted_secret: cli_secret,
+        })
     }
-
-    // generate a secret/credential
-    let secret_bytes: [u8; 32] = rand::random();
-
-    let (cli_cred_blob, cli_secret) =
-        attest::cli_make_cred(ek_pub_rsa, &attest_key_info.ak_name, &secret_bytes)?;
-
-    secret_ak_pub::insert(txn, &Vec::from(secret_bytes), &attest_key_info.ak_pub).await?;
-
-    Ok(rpc_forge::AttestKeyBindChallenge {
-        cred_blob: cli_cred_blob,
-        encrypted_secret: cli_secret,
-    })
+    #[cfg(not(feature = "linux-build"))]
+    {
+        let _ = (txn, attest_key_info, machine_id); // Suppress unused warnings
+        Err(Status::unimplemented(
+            "Measured boot attestation is not supported on this platform (requires Linux with TPM support)"
+        ))
+    }
 }
 
 pub async fn create_system_profile(
