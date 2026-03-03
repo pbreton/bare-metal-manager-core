@@ -29,6 +29,51 @@ use sqlx::PgConnection;
 
 use crate::CarbideError;
 
+const QCOW_IMAGER_IPXE: &str =
+    "chain ${base-url}/internal/x86_64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";
+
+/// Converts an operating_systems row (type ipxe_os_definition) to IpxeOs for the renderer.
+fn operating_system_row_to_ipxe_os(row: &db::operating_system::OperatingSystemRow) -> Result<IpxeOs, CarbideError> {
+    if row.type_ != "ipxe_os_definition" {
+        return Err(CarbideError::internal(format!(
+            "operating_system {} has type {:?}, expected ipxe_os_definition",
+            row.id, row.type_
+        )));
+    }
+    let ipxe_template_name = row
+        .ipxe_template_name
+        .clone()
+        .unwrap_or_else(|| String::new());
+    let parameters: Vec<IpxeOsParameter> = row
+        .ipxe_parameters
+        .as_ref()
+        .and_then(|j| {
+            j.0.as_array().map(|arr| {
+                arr.iter()
+                    .filter_map(|v| {
+                        let obj = v.as_object()?;
+                        Some(IpxeOsParameter {
+                            name: obj.get("name")?.as_str()?.to_string(),
+                            value: obj.get("value")?.as_str().unwrap_or("").to_string(),
+                        })
+                    })
+                    .collect()
+            })
+        })
+        .unwrap_or_default();
+    // Artifacts: ipxe-renderer's IpxeOsArtifact does not implement Deserialize; use empty for now.
+    let artifacts: Vec<carbide_ipxe_renderer::IpxeOsArtifact> = Vec::new();
+    Ok(IpxeOs {
+        name: row.name.clone(),
+        description: row.description.clone(),
+        hash: row.ipxe_definition_hash.clone().unwrap_or_default(),
+        tenant_id: Some(row.org.clone()),
+        ipxe_template_name,
+        parameters,
+        artifacts,
+    })
+}
+
 pub struct PxeInstructions;
 
 #[derive(serde::Serialize)]
@@ -409,9 +454,9 @@ exit ||
                                 tenant_ipxe
                             }
                             model::os::OperatingSystemVariant::IpxeOsDefinition(os_def_id) => {
-                                // Load the OS definition from database
-                                let ipxeos = db::ipxe_os_definition::get(txn, os_def_id).await?;
-                                
+                                // Load the OS definition from operating_systems table
+                                let row = db::operating_system::get(txn, os_def_id).await?;
+                                let ipxeos = operating_system_row_to_ipxe_os(&row)?;
                                 // Render using template-based renderer
                                 Self::render_ipxe_os_definition(&ipxeos, "${base-url}", console)?
                             }

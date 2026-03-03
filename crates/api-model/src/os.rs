@@ -135,11 +135,8 @@ impl TryFrom<rpc::forge::OperatingSystem> for OperatingSystem {
                     ))?;
                 OperatingSystemVariant::IpxeOsDefinition(
                     Uuid::try_from(id).map_err(|e| {
-                        RpcDataConversionError::InvalidUuid(
-                            "ipxe_os_definition_id: ",
-                            e.to_string(),
-                        )
-                    })?,
+                        RpcDataConversionError::InvalidUuid("ipxe_os_definition_id: ", e.to_string())
+                    })?
                 )
             }
         };
@@ -177,13 +174,13 @@ impl TryFrom<OperatingSystem> for rpc::forge::OperatingSystem {
                         tenant_id: None,
                         scope: None,
                         ipxe_template_name: String::new(),
-                        parameters: vec![],
-                        artifacts: vec![],
+                        parameters: Vec::new(),
+                        artifacts: Vec::new(),
                         allow_override: false,
                         created: String::new(),
                         updated: String::new(),
                         created_by: None,
-                    },
+                    }
                 )
             }
         };
