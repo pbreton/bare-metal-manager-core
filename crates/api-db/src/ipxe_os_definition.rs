@@ -25,9 +25,6 @@ use crate::DatabaseError;
 ///
 /// Returns the definition for use with the template-based renderer.
 /// Not implemented: requires ipxe_os_definitions table and migration.
-pub async fn get(
-    _txn: &mut PgConnection,
-    _os_def_id: Uuid,
-) -> Result<IpxeOs, DatabaseError> {
+pub async fn get(_txn: &mut PgConnection, _os_def_id: Uuid) -> Result<IpxeOs, DatabaseError> {
     Err(DatabaseError::NotImplemented)
 }

@@ -407,8 +407,10 @@ mod tests {
         let version = ConfigVersion::initial().version_string();
         InstanceSnapshotPgJson {
             id: InstanceId::from(uuid::Uuid::nil()),
-            machine_id: MachineId::from_str("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
-                .unwrap(),
+            machine_id: MachineId::from_str(
+                "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0",
+            )
+            .unwrap(),
             name: String::new(),
             description: String::new(),
             labels: HashMap::new(),
@@ -483,7 +485,10 @@ mod tests {
         if let OperatingSystemVariant::Ipxe(ipxe) = &snapshot.config.os.variant {
             assert_eq!(ipxe.ipxe_script, "legacy-inline-script");
         }
-        assert_eq!(snapshot.config.os.user_data.as_deref(), Some("legacy-user-data"));
+        assert_eq!(
+            snapshot.config.os.user_data.as_deref(),
+            Some("legacy-user-data")
+        );
         assert!(snapshot.config.os.phone_home_enabled);
     }
 

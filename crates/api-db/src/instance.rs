@@ -31,7 +31,7 @@ use model::instance::config::extension_services::InstanceExtensionServicesConfig
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate};
 use model::instance::config::nvlink::InstanceNvLinkConfig;
-use model::instance::snapshot::{self, InstanceSnapshotPgJson, InstanceSnapshot};
+use model::instance::snapshot::{self, InstanceSnapshot, InstanceSnapshotPgJson};
 use model::metadata::Metadata;
 use model::os::{InlineIpxe, OperatingSystem, OperatingSystemVariant};
 use sqlx::PgConnection;
@@ -147,11 +147,10 @@ pub async fn find(
         .map_err(|e| DatabaseError::query(query.sql(), e))?;
     let mut pg_jsons: Vec<InstanceSnapshotPgJson> = Vec::with_capacity(rows.len());
     for (json,) in rows {
-        let pg_json: InstanceSnapshotPgJson = serde_json::from_value(json).map_err(|e| {
-            DatabaseError::Internal {
+        let pg_json: InstanceSnapshotPgJson =
+            serde_json::from_value(json).map_err(|e| DatabaseError::Internal {
                 message: format!("instance snapshot json decode: {e}"),
-            }
-        })?;
+            })?;
         pg_jsons.push(pg_json);
     }
     if pg_jsons.is_empty() {
@@ -175,10 +174,8 @@ pub async fn find(
         let snapshot = match pg_json.operating_system_id.and_then(|id| os_by_id.get(&id)) {
             Some(os_row) => {
                 let os = build_operating_system_for_snapshot(os_row, &pg_json);
-                snapshot::from_pg_json_and_os(pg_json, os).map_err(|e| {
-                    DatabaseError::Internal {
-                        message: format!("instance snapshot from_pg_json_and_os: {e}"),
-                    }
+                snapshot::from_pg_json_and_os(pg_json, os).map_err(|e| DatabaseError::Internal {
+                    message: format!("instance snapshot from_pg_json_and_os: {e}"),
                 })?
             }
             None => InstanceSnapshot::try_from(pg_json).map_err(|e| DatabaseError::Internal {
@@ -204,10 +201,7 @@ fn build_operating_system_for_snapshot(
             let script = if os_row.allow_override && !pg_json.os_ipxe_script.is_empty() {
                 pg_json.os_ipxe_script.clone()
             } else {
-                os_row
-                    .ipxe_script
-                    .clone()
-                    .unwrap_or_default()
+                os_row.ipxe_script.clone().unwrap_or_default()
             };
             OperatingSystemVariant::Ipxe(InlineIpxe {
                 ipxe_script: script,
@@ -312,11 +306,10 @@ pub async fn find_by_machine_ids(
         .map_err(|e| DatabaseError::query(query, e))?;
     let mut pg_jsons: Vec<InstanceSnapshotPgJson> = Vec::with_capacity(rows.len());
     for (json,) in rows {
-        let pg_json: InstanceSnapshotPgJson = serde_json::from_value(json).map_err(|e| {
-            DatabaseError::Internal {
+        let pg_json: InstanceSnapshotPgJson =
+            serde_json::from_value(json).map_err(|e| DatabaseError::Internal {
                 message: format!("instance snapshot json decode: {e}"),
-            }
-        })?;
+            })?;
         pg_jsons.push(pg_json);
     }
     if pg_jsons.is_empty() {
@@ -340,10 +333,8 @@ pub async fn find_by_machine_ids(
         let snapshot = match pg_json.operating_system_id.and_then(|id| os_by_id.get(&id)) {
             Some(os_row) => {
                 let os = build_operating_system_for_snapshot(os_row, &pg_json);
-                snapshot::from_pg_json_and_os(pg_json, os).map_err(|e| {
-                    DatabaseError::Internal {
-                        message: format!("instance snapshot from_pg_json_and_os: {e}"),
-                    }
+                snapshot::from_pg_json_and_os(pg_json, os).map_err(|e| DatabaseError::Internal {
+                    message: format!("instance snapshot from_pg_json_and_os: {e}"),
                 })?
             }
             None => InstanceSnapshot::try_from(pg_json).map_err(|e| DatabaseError::Internal {

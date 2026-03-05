@@ -178,13 +178,24 @@ pub async fn update(
     input: &UpdateOperatingSystem,
 ) -> Result<OperatingSystemRow, DatabaseError> {
     let name = input.name.as_deref().unwrap_or(&existing.name);
-    let description = input.description.as_deref().or(existing.description.as_deref());
+    let description = input
+        .description
+        .as_deref()
+        .or(existing.description.as_deref());
     let is_active = input.is_active.unwrap_or(existing.is_active);
     let allow_override = input.allow_override.unwrap_or(existing.allow_override);
-    let phone_home_enabled = input.phone_home_enabled.unwrap_or(existing.phone_home_enabled);
+    let phone_home_enabled = input
+        .phone_home_enabled
+        .unwrap_or(existing.phone_home_enabled);
     let user_data = input.user_data.as_deref().or(existing.user_data.as_deref());
-    let ipxe_script = input.ipxe_script.as_deref().or(existing.ipxe_script.as_deref());
-    let ipxe_template_name = input.ipxe_template_name.as_deref().or(existing.ipxe_template_name.as_deref());
+    let ipxe_script = input
+        .ipxe_script
+        .as_deref()
+        .or(existing.ipxe_script.as_deref());
+    let ipxe_template_name = input
+        .ipxe_template_name
+        .as_deref()
+        .or(existing.ipxe_template_name.as_deref());
 
     let ipxe_parameters: Option<sqlx::types::Json<&serde_json::Value>> = input
         .ipxe_parameters
@@ -223,10 +234,7 @@ pub async fn update(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-pub async fn delete(
-    txn: &mut PgConnection,
-    id: Uuid,
-) -> Result<(), DatabaseError> {
+pub async fn delete(txn: &mut PgConnection, id: Uuid) -> Result<(), DatabaseError> {
     let query = "UPDATE operating_systems SET deleted = NOW(), updated = NOW() WHERE id = $1 AND deleted IS NULL";
     let result = sqlx::query(query)
         .bind(id)

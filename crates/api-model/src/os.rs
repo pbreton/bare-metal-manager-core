@@ -133,11 +133,9 @@ impl TryFrom<rpc::forge::OperatingSystem> for OperatingSystem {
                     .ok_or(RpcDataConversionError::MissingArgument(
                         "IpxeOsDefinition::id",
                     ))?;
-                OperatingSystemVariant::IpxeOsDefinition(
-                    Uuid::try_from(id).map_err(|e| {
-                        RpcDataConversionError::InvalidUuid("ipxe_os_definition_id: ", e.to_string())
-                    })?
-                )
+                OperatingSystemVariant::IpxeOsDefinition(Uuid::try_from(id).map_err(|e| {
+                    RpcDataConversionError::InvalidUuid("ipxe_os_definition_id: ", e.to_string())
+                })?)
             }
         };
 
@@ -165,23 +163,21 @@ impl TryFrom<OperatingSystem> for rpc::forge::OperatingSystem {
                 rpc::forge::operating_system::Variant::OsImageId(id.into())
             }
             OperatingSystemVariant::IpxeOsDefinition(id) => {
-                rpc::forge::operating_system::Variant::IpxeOsDef(
-                    rpc::forge::IpxeOsDefinition {
-                        id: Some(id.into()),
-                        name: String::new(),
-                        description: None,
-                        hash: String::new(),
-                        tenant_id: None,
-                        scope: None,
-                        ipxe_template_name: String::new(),
-                        parameters: Vec::new(),
-                        artifacts: Vec::new(),
-                        allow_override: false,
-                        created: String::new(),
-                        updated: String::new(),
-                        created_by: None,
-                    }
-                )
+                rpc::forge::operating_system::Variant::IpxeOsDef(rpc::forge::IpxeOsDefinition {
+                    id: Some(id.into()),
+                    name: String::new(),
+                    description: None,
+                    hash: String::new(),
+                    tenant_id: None,
+                    scope: None,
+                    ipxe_template_name: String::new(),
+                    parameters: Vec::new(),
+                    artifacts: Vec::new(),
+                    allow_override: false,
+                    created: String::new(),
+                    updated: String::new(),
+                    created_by: None,
+                })
             }
         };
 

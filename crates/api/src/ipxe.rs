@@ -29,11 +29,10 @@ use sqlx::PgConnection;
 
 use crate::CarbideError;
 
-const QCOW_IMAGER_IPXE: &str =
-    "chain ${base-url}/internal/x86_64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";
-
 /// Converts an operating_systems row (type ipxe_os_definition) to IpxeOs for the renderer.
-fn operating_system_row_to_ipxe_os(row: &db::operating_system::OperatingSystemRow) -> Result<IpxeOs, CarbideError> {
+fn operating_system_row_to_ipxe_os(
+    row: &db::operating_system::OperatingSystemRow,
+) -> Result<IpxeOs, CarbideError> {
     if row.type_ != "ipxe_os_definition" {
         return Err(CarbideError::internal(format!(
             "operating_system {} has type {:?}, expected ipxe_os_definition",
@@ -148,7 +147,7 @@ impl PxeInstructions {
             }
         }.serialize_pxe_instructions()
     }
-    
+
     /// Render an IpxeOs definition using the template-based renderer
     fn render_ipxe_os_definition(
         ipxeos: &IpxeOs,
@@ -156,26 +155,29 @@ impl PxeInstructions {
         console: &str,
     ) -> Result<String, CarbideError> {
         let renderer = DefaultIpxeOsRenderer::new();
-        
+
         // Build reserved parameters
-        let mut reserved_params = vec![
-            IpxeOsParameter {
-                name: "base_url".to_string(),
-                value: base_url.to_string(),
-            },
-        ];
-        
+        let mut reserved_params = vec![IpxeOsParameter {
+            name: "base_url".to_string(),
+            value: base_url.to_string(),
+        }];
+
         // Check if template requires console parameter
         if let Some(template) = renderer.get_template(&ipxeos.ipxe_template_name) {
-            if template.reserved_params.iter().any(|p| p.to_lowercase() == "console") {
+            if template
+                .reserved_params
+                .iter()
+                .any(|p| p.to_lowercase() == "console")
+            {
                 reserved_params.push(IpxeOsParameter {
                     name: "console".to_string(),
                     value: console.to_string(),
                 });
             }
         }
-        
-        renderer.render(ipxeos, &reserved_params)
+
+        renderer
+            .render(ipxeos, &reserved_params)
             .map_err(|e| CarbideError::internal(format!("Failed to render iPXE script: {}", e)))
     }
 

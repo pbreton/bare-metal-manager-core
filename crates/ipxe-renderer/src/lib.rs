@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use serde::Deserialize;
 
 /// iPXE OS definition with template-based rendering support
 #[derive(Debug, Clone)]
@@ -53,7 +53,7 @@ pub enum ArtifactCacheStrategy {
     CacheAsNeeded, // Download and cache artifact locally per policy (default)
     LocalOnly,     // Artifact can only be used locally, fail if not available
     RemoteOnly,    // Always fetch from remote URL, never cache locally
-} 
+}
 
 /// Remote artifact to allow awareness for potential local caching/proxy
 #[derive(Debug, Clone)]
@@ -167,10 +167,10 @@ impl DefaultIpxeOsRenderer {
     pub fn new() -> Self {
         // Load templates from embedded YAML file at compile time
         const TEMPLATES_YAML: &str = include_str!("../templates.yaml");
-        
+
         let template_collection: TemplateCollection = serde_yaml::from_str(TEMPLATES_YAML)
             .expect("Failed to parse templates.yaml - this is a compile-time error");
-        
+
         let templates = template_collection
             .templates
             .into_iter()
@@ -192,11 +192,7 @@ impl Default for DefaultIpxeOsRenderer {
 }
 
 impl IpxeOsRenderer for DefaultIpxeOsRenderer {
-    fn render(
-        &self,
-        ipxeos: &IpxeOs,
-        reserved_params: &[IpxeOsParameter],
-    ) -> Result<String> {
+    fn render(&self, ipxeos: &IpxeOs, reserved_params: &[IpxeOsParameter]) -> Result<String> {
         // Validate first
         self.validate(ipxeos)?;
 
@@ -210,15 +206,20 @@ impl IpxeOsRenderer for DefaultIpxeOsRenderer {
 
         // Occurrence-based parameter consumption (with artifact substitution, case-insensitive)
         let mut consumption_map: HashMap<String, Vec<String>> = HashMap::new();
-        let mut consumed_param_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
-        let mut consumed_artifact_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
-        
+        let mut consumed_param_indices: std::collections::HashSet<usize> =
+            std::collections::HashSet::new();
+        let mut consumed_artifact_indices: std::collections::HashSet<usize> =
+            std::collections::HashSet::new();
+
         // Step 1: Consume parameters for required_params (in order with duplicates, case-insensitive)
         for required_name in &template.required_params {
             let required_lower = required_name.to_lowercase();
             // Find next unconsumed parameter with this name (case-insensitive)
             for (idx, param) in ipxeos.parameters.iter().enumerate() {
-                if param.name.to_lowercase() == required_lower && !consumed_param_indices.contains(&idx) && !param.value.is_empty() {
+                if param.name.to_lowercase() == required_lower
+                    && !consumed_param_indices.contains(&idx)
+                    && !param.value.is_empty()
+                {
                     consumption_map
                         .entry(required_lower.clone())
                         .or_insert_with(Vec::new)
@@ -228,13 +229,15 @@ impl IpxeOsRenderer for DefaultIpxeOsRenderer {
                 }
             }
         }
-        
+
         // Step 2: Consume artifacts for required_artifacts (in order with duplicates, case-insensitive)
         for required_artifact_name in &template.required_artifacts {
             let required_artifact_lower = required_artifact_name.to_lowercase();
             // Find next unconsumed artifact with this name (case-insensitive)
             for (idx, artifact) in ipxeos.artifacts.iter().enumerate() {
-                if artifact.name.to_lowercase() == required_artifact_lower && !consumed_artifact_indices.contains(&idx) {
+                if artifact.name.to_lowercase() == required_artifact_lower
+                    && !consumed_artifact_indices.contains(&idx)
+                {
                     let url = artifact.local_url.as_ref().unwrap_or(&artifact.url);
                     consumption_map
                         .entry(required_artifact_lower.clone())
@@ -245,28 +248,32 @@ impl IpxeOsRenderer for DefaultIpxeOsRenderer {
                 }
             }
         }
-        
+
         // Step 3: Add reserved parameters (they override and are always provided, case-insensitive)
         for reserved_name in &template.reserved_params {
             let reserved_lower = reserved_name.to_lowercase();
-            if let Some(reserved_param) = reserved_params.iter().find(|p| p.name.to_lowercase() == reserved_lower) {
+            if let Some(reserved_param) = reserved_params
+                .iter()
+                .find(|p| p.name.to_lowercase() == reserved_lower)
+            {
                 consumption_map
                     .entry(reserved_lower)
                     .or_insert_with(Vec::new)
                     .push(reserved_param.value.clone());
             }
         }
-        
+
         // Step 4: Replace placeholders in template (lowercase keys)
         let mut result = template.template.clone();
-        let mut processed_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-        
+        let mut processed_names: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+
         for (param_name_lower, values) in &consumption_map {
             if processed_names.contains(param_name_lower) {
                 continue;
             }
             processed_names.insert(param_name_lower.clone());
-            
+
             // Placeholder should be lowercase
             let placeholder = format!("{{{{{}}}}}", param_name_lower);
             for value in values {
@@ -280,11 +287,11 @@ impl IpxeOsRenderer for DefaultIpxeOsRenderer {
         // PRESERVE ORIGINAL CASE for parameter names in {{extra}}
         if result.contains("{{extra}}") {
             let mut extra_params: Vec<String> = Vec::new();
-            
+
             // Collect all unconsumed parameters (not artifacts for extra, preserve original case)
             for (idx, param) in ipxeos.parameters.iter().enumerate() {
                 if !consumed_param_indices.contains(&idx) && !param.value.is_empty() {
-                    extra_params.push(format!("{}={}", param.name, param.value));  // Original case preserved
+                    extra_params.push(format!("{}={}", param.name, param.value)); // Original case preserved
                 }
             }
 
@@ -327,17 +334,19 @@ impl IpxeOsRenderer for DefaultIpxeOsRenderer {
         // Names are case-insensitive (normalized to lowercase)
         for param in &ipxeos.parameters {
             if param.name.to_lowercase() == "extra" {
-                return Err(IpxeOsError::ReservedParameterFound(
-                    format!("'{}' (normalized to 'extra' which is globally reserved for {{{{extra}}}} placeholder)", param.name),
-                ));
+                return Err(IpxeOsError::ReservedParameterFound(format!(
+                    "'{}' (normalized to 'extra' which is globally reserved for {{{{extra}}}} placeholder)",
+                    param.name
+                )));
             }
         }
-        
+
         for artifact in &ipxeos.artifacts {
             if artifact.name.to_lowercase() == "extra" {
-                return Err(IpxeOsError::ReservedParameterFound(
-                    format!("'{}' (normalized to 'extra' which is globally reserved, cannot be used as artifact name)", artifact.name),
-                ));
+                return Err(IpxeOsError::ReservedParameterFound(format!(
+                    "'{}' (normalized to 'extra' which is globally reserved, cannot be used as artifact name)",
+                    artifact.name
+                )));
             }
         }
 
@@ -354,7 +363,8 @@ impl IpxeOsRenderer for DefaultIpxeOsRenderer {
 
         // Check for required parameters - count occurrences
         // Build map of required counts for each parameter name (case-insensitive, use lowercase)
-        let mut required_param_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut required_param_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
         for required_param in &template.required_params {
             let key = required_param.to_lowercase();
             *required_param_counts.entry(key).or_insert(0) += 1;
@@ -367,24 +377,26 @@ impl IpxeOsRenderer for DefaultIpxeOsRenderer {
                 .iter()
                 .filter(|p| p.name.to_lowercase() == *required_name_lower && !p.value.is_empty())
                 .count();
-            
+
             let artifact_count = ipxeos
                 .artifacts
                 .iter()
                 .filter(|a| a.name.to_lowercase() == *required_name_lower)
                 .count();
-            
+
             let available_count = param_count + artifact_count;
-            
+
             if available_count < *required_count {
-                return Err(IpxeOsError::RequiredParameterMissing(
-                    format!("{} (need {} occurrences, have {})", required_name_lower, required_count, available_count),
-                ));
+                return Err(IpxeOsError::RequiredParameterMissing(format!(
+                    "{} (need {} occurrences, have {})",
+                    required_name_lower, required_count, available_count
+                )));
             }
         }
 
         // Check for required artifacts - count occurrences (case-insensitive)
-        let mut required_artifact_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut required_artifact_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
         for required_artifact in &template.required_artifacts {
             let key = required_artifact.to_lowercase();
             *required_artifact_counts.entry(key).or_insert(0) += 1;
@@ -398,9 +410,10 @@ impl IpxeOsRenderer for DefaultIpxeOsRenderer {
                 .count();
 
             if artifact_count < *required_count {
-                return Err(IpxeOsError::ArtifactNotFound(
-                    format!("{} (need {} occurrences, have {})", required_name_lower, required_count, artifact_count),
-                ));
+                return Err(IpxeOsError::ArtifactNotFound(format!(
+                    "{} (need {} occurrences, have {})",
+                    required_name_lower, required_count, artifact_count
+                )));
             }
         }
 
@@ -444,15 +457,15 @@ impl IpxeOsRenderer for DefaultIpxeOsRenderer {
         let mut params = ipxeos.parameters.clone();
         params.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         for param in params {
-            hasher.update(param.name.to_lowercase().as_bytes());  // Lowercase for case-insensitivity
-            hasher.update(param.value.as_bytes());  // Value keeps original case
+            hasher.update(param.name.to_lowercase().as_bytes()); // Lowercase for case-insensitivity
+            hasher.update(param.value.as_bytes()); // Value keeps original case
         }
 
         // Hash artifacts (excluding cache_strategy and local_url, names lowercase)
         let mut artifacts = ipxeos.artifacts.clone();
         artifacts.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         for artifact in artifacts {
-            hasher.update(artifact.name.to_lowercase().as_bytes());  // Lowercase for case-insensitivity
+            hasher.update(artifact.name.to_lowercase().as_bytes()); // Lowercase for case-insensitivity
             hasher.update(artifact.url.as_bytes());
             if let Some(sha) = &artifact.sha {
                 hasher.update(sha.as_bytes());
@@ -512,10 +525,15 @@ impl DefaultIpxeOsRenderer {
         template: &IpxeScriptTemplate,
     ) -> Result<()> {
         // Build sets of unique names for comparison (case-insensitive, use lowercase)
-        let provided: std::collections::HashSet<String> =
-            reserved_params.iter().map(|p| p.name.to_lowercase()).collect();
-        let required: std::collections::HashSet<String> =
-            template.reserved_params.iter().map(|s| s.to_lowercase()).collect();
+        let provided: std::collections::HashSet<String> = reserved_params
+            .iter()
+            .map(|p| p.name.to_lowercase())
+            .collect();
+        let required: std::collections::HashSet<String> = template
+            .reserved_params
+            .iter()
+            .map(|s| s.to_lowercase())
+            .collect();
 
         // Check for missing reserved parameters (case-insensitive)
         for required_param in &template.reserved_params {
@@ -1082,7 +1100,7 @@ mod tests {
             result,
             Err(IpxeOsError::ReservedParameterFound(_))
         ));
-        
+
         // Verify error message mentions "extra"
         if let Err(IpxeOsError::ReservedParameterFound(msg)) = result {
             assert!(msg.contains("extra"));
@@ -1122,7 +1140,7 @@ mod tests {
             result,
             Err(IpxeOsError::ReservedParameterFound(_))
         ));
-        
+
         // Verify error message mentions "extra"
         if let Err(IpxeOsError::ReservedParameterFound(msg)) = result {
             assert!(msg.contains("extra"));
@@ -1158,7 +1176,7 @@ mod tests {
             result,
             Err(IpxeOsError::ReservedParameterFound(_))
         ));
-        
+
         // Verify error message mentions the parameter
         if let Err(IpxeOsError::ReservedParameterFound(msg)) = result {
             assert!(msg.contains("Extra") || msg.contains("extra"));
@@ -1195,7 +1213,7 @@ mod tests {
 
         let result = renderer.render(&ipxeos, &reserved_params);
         assert!(result.is_ok());
-        
+
         let script = result.unwrap();
         // Original case should be preserved in {{extra}}
         assert!(script.contains("MyCustomParam=value1"));
@@ -1209,39 +1227,37 @@ mod tests {
     fn test_case_insensitive_parameter_matching() {
         // Parameter names should match case-insensitively
         let renderer = DefaultIpxeOsRenderer::new();
-        
+
         let ipxeos = IpxeOs {
             name: "Test".to_string(),
             description: None,
             hash: "".to_string(),
             tenant_id: None,
             ipxe_template_name: "qcow-image".to_string(),
-            parameters: vec![
-                IpxeOsParameter {
-                    name: "IMAGE_URL".to_string(),  // Uppercase
-                    value: "http://example.com/image.qcow2".to_string(),
-                },
-            ],
+            parameters: vec![IpxeOsParameter {
+                name: "IMAGE_URL".to_string(), // Uppercase
+                value: "http://example.com/image.qcow2".to_string(),
+            }],
             artifacts: vec![],
         };
-        
+
         let mut ipxeos_with_hash = ipxeos.clone();
         ipxeos_with_hash.hash = renderer.hash(&ipxeos);
 
         let reserved_params = vec![
             IpxeOsParameter {
-                name: "BASE_URL".to_string(),  // Uppercase
+                name: "BASE_URL".to_string(), // Uppercase
                 value: "http://pxe.local".to_string(),
             },
             IpxeOsParameter {
-                name: "CONSOLE".to_string(),  // Uppercase
+                name: "CONSOLE".to_string(), // Uppercase
                 value: "ttyS0,115200".to_string(),
             },
         ];
 
         let result = renderer.render(&ipxeos_with_hash, &reserved_params);
         assert!(result.is_ok());
-        
+
         let script = result.unwrap();
         // Should match case-insensitively and render correctly
         assert!(script.contains("http://pxe.local"));
@@ -1253,40 +1269,36 @@ mod tests {
     fn test_case_insensitive_hash_equivalence() {
         // Different cases of same parameter name should produce same hash
         let renderer = DefaultIpxeOsRenderer::new();
-        
+
         let ipxeos1 = IpxeOs {
             name: "Test".to_string(),
             description: None,
             hash: "".to_string(),
             tenant_id: None,
             ipxe_template_name: "qcow-image".to_string(),
-            parameters: vec![
-                IpxeOsParameter {
-                    name: "image_url".to_string(),  // lowercase
-                    value: "http://example.com/image.qcow2".to_string(),
-                },
-            ],
+            parameters: vec![IpxeOsParameter {
+                name: "image_url".to_string(), // lowercase
+                value: "http://example.com/image.qcow2".to_string(),
+            }],
             artifacts: vec![],
         };
-        
+
         let ipxeos2 = IpxeOs {
             name: "Test".to_string(),
             description: None,
             hash: "".to_string(),
             tenant_id: None,
             ipxe_template_name: "qcow-image".to_string(),
-            parameters: vec![
-                IpxeOsParameter {
-                    name: "IMAGE_URL".to_string(),  // UPPERCASE
-                    value: "http://example.com/image.qcow2".to_string(),
-                },
-            ],
+            parameters: vec![IpxeOsParameter {
+                name: "IMAGE_URL".to_string(), // UPPERCASE
+                value: "http://example.com/image.qcow2".to_string(),
+            }],
             artifacts: vec![],
         };
 
         let hash1 = renderer.hash(&ipxeos1);
         let hash2 = renderer.hash(&ipxeos2);
-        
+
         // Hashes should match (case-insensitive)
         assert_eq!(hash1, hash2);
     }
@@ -1296,32 +1308,28 @@ mod tests {
         // If required_params has "foo" and we have both parameter and artifact named "foo",
         // parameter should be consumed first (artifacts only consumed by required_artifacts)
         let renderer = DefaultIpxeOsRenderer::new();
-        
+
         let ipxeos = IpxeOs {
             name: "Test".to_string(),
             description: None,
             hash: "".to_string(),
             tenant_id: None,
             ipxe_template_name: "qcow-image".to_string(),
-            parameters: vec![
-                IpxeOsParameter {
-                    name: "image_url".to_string(),
-                    value: "param_value".to_string(),
-                },
-            ],
-            artifacts: vec![
-                IpxeOsArtifact {
-                    name: "image_url".to_string(),  // Same name as parameter
-                    url: "artifact_url".to_string(),
-                    sha: None,
-                    auth_type: None,
-                    auth_token: None,
-                    cache_strategy: ArtifactCacheStrategy::CacheAsNeeded,
-                    local_url: None,
-                },
-            ],
+            parameters: vec![IpxeOsParameter {
+                name: "image_url".to_string(),
+                value: "param_value".to_string(),
+            }],
+            artifacts: vec![IpxeOsArtifact {
+                name: "image_url".to_string(), // Same name as parameter
+                url: "artifact_url".to_string(),
+                sha: None,
+                auth_type: None,
+                auth_token: None,
+                cache_strategy: ArtifactCacheStrategy::CacheAsNeeded,
+                local_url: None,
+            }],
         };
-        
+
         let mut ipxeos_with_hash = ipxeos.clone();
         ipxeos_with_hash.hash = renderer.hash(&ipxeos);
 
@@ -1338,7 +1346,7 @@ mod tests {
 
         let result = renderer.render(&ipxeos_with_hash, &reserved_params);
         assert!(result.is_ok());
-        
+
         let script = result.unwrap();
         // Parameter value should be used (not artifact URL) since required_params consumes parameters
         assert!(script.contains("image_url=param_value"));
@@ -1846,7 +1854,9 @@ mod tests {
         let renderer = DefaultIpxeOsRenderer::new();
 
         // Get the whoami template
-        let template = renderer.get_template("whoami").expect("whoami template should exist");
+        let template = renderer
+            .get_template("whoami")
+            .expect("whoami template should exist");
 
         // whoami template is static - no parameters, no artifacts, no placeholders
         let mut ipxeos = IpxeOs {
@@ -1867,25 +1877,29 @@ mod tests {
 
         let result = renderer.render(&ipxeos, &reserved_params);
         assert!(result.is_ok(), "Render failed: {:?}", result.err());
-        
+
         let rendered_script = result.unwrap();
-        
+
         // Compute checksum of rendered script
         let mut hasher_rendered = Sha256::new();
         hasher_rendered.update(rendered_script.as_bytes());
         let rendered_hash = format!("{:x}", hasher_rendered.finalize());
-        
+
         // Compute checksum of template text (normalized - trailing spaces removed per line)
-        let normalized_template = template.template.lines()
+        let normalized_template = template
+            .template
+            .lines()
             .map(|line| line.trim_end())
             .collect::<Vec<_>>()
             .join("\n");
         let mut hasher_template = Sha256::new();
         hasher_template.update(normalized_template.as_bytes());
         let template_hash = format!("{:x}", hasher_template.finalize());
-        
+
         // Checksums should match - template rendered as-is with no alterations
-        assert_eq!(rendered_hash, template_hash, 
-            "Rendered script should match template exactly (static template with no placeholders)");
+        assert_eq!(
+            rendered_hash, template_hash,
+            "Rendered script should match template exactly (static template with no placeholders)"
+        );
     }
 }

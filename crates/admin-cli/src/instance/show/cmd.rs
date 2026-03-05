@@ -134,9 +134,10 @@ async fn convert_instance_to_nice_format(
                         Some(Cow::Owned(format!("OS Image ID: {}", image.value)))
                     }
                     Some(::rpc::forge::operating_system::Variant::IpxeOsDef(ipxe_def)) => {
-                        Some(Cow::Owned(format!("iPXE OS Definition: {} (template: {})", 
-                            ipxe_def.name, 
-                            ipxe_def.ipxe_template_name)))
+                        Some(Cow::Owned(format!(
+                            "iPXE OS Definition: {} (template: {})",
+                            ipxe_def.name, ipxe_def.ipxe_template_name
+                        )))
                     }
                     None => None,
                 })
