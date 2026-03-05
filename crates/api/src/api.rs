@@ -1976,6 +1976,42 @@ impl Forge for Api {
     ) -> Result<Response<rpc::OsImage>, Status> {
         crate::storage::update_os_image(self, request).await
     }
+
+    async fn create_operating_system(
+        &self,
+        request: Request<rpc::CreateOperatingSystemRequest>,
+    ) -> Result<Response<rpc::StoredOperatingSystem>, Status> {
+        crate::handlers::operating_system::create_operating_system(self, request).await
+    }
+
+    async fn get_operating_system(
+        &self,
+        request: Request<::rpc::Uuid>,
+    ) -> Result<Response<rpc::StoredOperatingSystem>, Status> {
+        crate::handlers::operating_system::get_operating_system(self, request).await
+    }
+
+    async fn update_operating_system(
+        &self,
+        request: Request<rpc::UpdateOperatingSystemRequest>,
+    ) -> Result<Response<rpc::StoredOperatingSystem>, Status> {
+        crate::handlers::operating_system::update_operating_system(self, request).await
+    }
+
+    async fn delete_operating_system(
+        &self,
+        request: Request<rpc::DeleteOperatingSystemRequest>,
+    ) -> Result<Response<rpc::DeleteOperatingSystemResponse>, Status> {
+        crate::handlers::operating_system::delete_operating_system(self, request).await
+    }
+
+    async fn list_operating_systems(
+        &self,
+        request: Request<rpc::ListOperatingSystemsRequest>,
+    ) -> Result<Response<rpc::ListOperatingSystemsResponse>, Status> {
+        crate::handlers::operating_system::list_operating_systems(self, request).await
+    }
+
     async fn get_machine_validation_runs(
         &self,
         request: Request<rpc::MachineValidationRunListGetRequest>,

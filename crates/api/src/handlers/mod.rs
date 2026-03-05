@@ -54,6 +54,7 @@ pub mod measured_boot;
 pub mod mlx_admin;
 pub mod network_devices;
 pub mod network_security_group;
+pub mod operating_system;
 pub mod network_segment;
 pub mod nvl_partition;
 pub mod power_options;
