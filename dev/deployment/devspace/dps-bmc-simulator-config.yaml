@@ -1,0 +1,10 @@
+# Adapted from cmd/dps-bmc-simulator/config.yaml in the internally pinned DPS
+# 0.8.0 source checkout. This Kubernetes profile must listen on the pod network.
+host: "0.0.0.0"
+port: 8443
+default_dir: "/app/mockups/gb200nvl"
+ssl: true
+debug: false
+update_workload_power_profile_delay: "100ms"
+metrics:
+  plugin: "synthetic"

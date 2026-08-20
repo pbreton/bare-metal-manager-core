@@ -1,0 +1,86 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+fullnameOverride: dps-simulator
+
+global:
+  imagePullSecrets: []
+  postgresql:
+    auth:
+      username: dps
+      database: dps
+    maxConnections: 20
+
+dps:
+  ingress:
+    enabled: false
+  gateway:
+    enabled: false
+  cors:
+    enabled: false
+  image:
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+      ephemeral-storage: 256Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+      ephemeral-storage: 2Gi
+  auth:
+    # The simulator profile does not deploy LDAP. Authentication failures are
+    # logged while the integration uses a non-empty development bearer token.
+    auth_warning_only: true
+  authRateLimit:
+    enabled: false
+  globalRateLimit:
+    enabled: false
+  ldap:
+    enabled: false
+  prs:
+    enabled: false
+  nautobot:
+    enabled: false
+  telemetry:
+    # The upstream chart applies Helm's `default true` to this value. A quoted
+    # false is required to preserve the disabled value through that expression.
+    enabled: "false"
+    collectors:
+      topology:
+        enabled: false
+      nvgrid:
+        enabled: false
+      node:
+        enabled: false
+      db:
+        enabled: false
+    provider:
+      enabled: false
+  monitoring:
+    enabled: false
+  deviceBootstrap:
+    enabled: false
+  persistence:
+    size: 256Mi
+
+ui:
+  enabled: false
+
+prs:
+  enabled: false
+
+postgresql:
+  enabled: true
+  storage:
+    enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+      ephemeral-storage: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      ephemeral-storage: 1Gi
