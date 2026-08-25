@@ -263,11 +263,15 @@ deploy LDAP; the token verifies NICo's bearer-header transport, not production
 OIDC authorization.
 
 After the topology is active, setup enables the Site's `dpsPowerManagement`
-capability and performs an initial lifecycle smoke test through the REST API. It
-creates a VPC with a power resource group, confirms the group appears in DPS,
-waits for the VPC to become ready, deletes the VPC, and confirms DPS removes the
-group. The smoke test requires a clean deployment and fails rather than deleting
-an existing `dps-e2e-vpc` or `nico-e2e-<site-id>` resource.
+capability and ensures the local Tenant has an Allocation for the Site. The
+harness-owned Allocation reserves a `/24` from a `198.18.0.0/15` provider block,
+which is reserved for benchmarking. Setup then performs an initial lifecycle
+smoke test through the REST API. It creates a VPC with a power resource group,
+confirms the group appears in DPS, waits for the VPC to become ready, deletes the
+VPC, and confirms DPS removes the group. The smoke test requires a clean
+deployment and fails rather than deleting an existing `dps-e2e-vpc` or
+`nico-e2e-<site-id>` resource. Repeated setup reuses its Allocation and provider
+IP Block.
 
 By default, setup obtains topology machine IDs from the REST inventory. To run
 the DPS lifecycle smoke independently while diagnosing an incomplete local

@@ -246,6 +246,57 @@ printf 'DPS simulator topology nico-dev is active with %s NICo machine IDs\n' \
 tenant_id="$(curl --fail-with-body --silent --max-time 10 \
   "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/tenant/current" \
   -H "Authorization: Bearer ${token}" | jq -er '.id')"
+allocation_name="dps-e2e-site-allocation"
+allocation_id="$(curl --fail-with-body --silent --max-time 10 \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/allocation?siteId=${site_id}&pageSize=100" \
+  -H "Authorization: Bearer ${token}" | jq -r \
+  --arg name "${allocation_name}" \
+  --arg tenant_id "${tenant_id}" \
+  '.[] | select(.name == $name and .tenantId == $tenant_id) | .id' | head -n 1)"
+if [[ -z "${allocation_id}" ]]; then
+  ip_block_name="dps-e2e-provider-ip-block"
+  ip_block_id="$(curl --fail-with-body --silent --max-time 10 \
+    "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/ipblock?siteId=${site_id}&pageSize=100" \
+    -H "Authorization: Bearer ${token}" | jq -r \
+    --arg name "${ip_block_name}" \
+    '.[] | select(.name == $name and .tenantId == null) | .id' | head -n 1)"
+  if [[ -z "${ip_block_id}" ]]; then
+    ip_block_payload="$(jq -cn \
+      --arg name "${ip_block_name}" \
+      --arg site_id "${site_id}" \
+      '{name: $name, siteId: $site_id, routingType: "Public", prefix: "198.18.0.0", prefixLength: 15, protocolVersion: "IPv4"}')"
+    if ! ip_block_response="$(curl --fail-with-body --silent --max-time 30 -X POST \
+      "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/ipblock" \
+      -H "Authorization: Bearer ${token}" \
+      -H 'Content-Type: application/json' \
+      -d "${ip_block_payload}")"; then
+      printf 'NICo IP Block creation failed:\n%s\n' "${ip_block_response}" >&2
+      exit 1
+    fi
+    ip_block_id="$(jq -er '.id' <<<"${ip_block_response}")"
+  fi
+
+  allocation_payload="$(jq -cn \
+    --arg name "${allocation_name}" \
+    --arg tenant_id "${tenant_id}" \
+    --arg site_id "${site_id}" \
+    --arg ip_block_id "${ip_block_id}" \
+    '{name: $name, tenantId: $tenant_id, siteId: $site_id,
+      allocationConstraints: [{resourceType: "IPBlock", resourceTypeId: $ip_block_id,
+        constraintType: "Reserved", constraintValue: 24}]}')"
+  if ! allocation_response="$(curl --fail-with-body --silent --max-time 30 -X POST \
+    "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/allocation" \
+    -H "Authorization: Bearer ${token}" \
+    -H 'Content-Type: application/json' \
+    -d "${allocation_payload}")"; then
+    printf 'NICo Allocation creation failed:\n%s\n' "${allocation_response}" >&2
+    exit 1
+  fi
+  allocation_id="$(jq -er '.id' <<<"${allocation_response}")"
+fi
+printf 'NICo tenant %s has test Allocation %s for Site %s\n' \
+  "${tenant_id}" "${allocation_id}" "${site_id}"
+
 resource_group="nico-e2e-${site_id}"
 existing_vpc_id="$(curl --fail-with-body --silent --max-time 10 \
   "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/vpc?pageSize=100" \
