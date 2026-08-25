@@ -1,0 +1,79 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: dps-tls-proxy
+spec:
+  selector:
+    app.kubernetes.io/name: dps-tls-proxy
+  ports:
+    - name: grpc-tls
+      port: 8443
+      targetPort: grpc-tls
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dps-tls-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dps-tls-proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dps-tls-proxy
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: dps-tls-proxy
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: LISTEN_ADDRESS
+              value: :8443
+            - name: UPSTREAM_ADDRESS
+              value: {{ .Values.upstreamAddress | quote }}
+            - name: TLS_CERT_FILE
+              value: /var/run/dps-tls/tls.crt
+            - name: TLS_KEY_FILE
+              value: /var/run/dps-tls/tls.key
+          ports:
+            - name: grpc-tls
+              containerPort: 8443
+          readinessProbe:
+            tcpSocket:
+              port: grpc-tls
+            periodSeconds: 2
+          livenessProbe:
+            tcpSocket:
+              port: grpc-tls
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tls
+              mountPath: /var/run/dps-tls
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ .Values.tlsSecret }}

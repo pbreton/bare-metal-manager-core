@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[req]
+distinguished_name = distinguished_name
+prompt = no
+req_extensions = v3_req
+
+[distinguished_name]
+CN = dps-tls-proxy.nico-dps.svc.cluster.local
+
+[v3_req]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = dps-tls-proxy
+DNS.2 = dps-tls-proxy.nico-dps
+DNS.3 = dps-tls-proxy.nico-dps.svc
+DNS.4 = dps-tls-proxy.nico-dps.svc.cluster.local

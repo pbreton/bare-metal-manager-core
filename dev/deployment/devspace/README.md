@@ -251,10 +251,23 @@ successful policy application for every machine.
 
 The simulator profile and `core-only` are mutually exclusive because DPS
 integration tests require the REST deployment. The simulator is absent from
-the default DevSpace configuration. The profile does not configure NICo's DPS
-client; verified TLS, token provisioning, and client configuration belong to
-the security increment that is locally merged with the direct-integration
-branch for end-to-end testing.
+the default DevSpace configuration. When locally merged with the direct DPS
+integration branch, the profile configures NICo's REST deployment for `dps`
+mode. A test-only TLS proxy terminates verified TLS in front of DPS 0.8.0's
+plaintext in-cluster gRPC listener. Before deployment, the profile creates a
+private local CA and server certificate beneath ignored `.devspace/` output,
+then applies the proxy key pair in `nico-dps` and a REST client Secret containing
+the CA plus a non-empty development bearer token in `nico-rest`. DPS runs in its
+warning-only development authentication mode because this profile does not
+deploy LDAP; the token verifies NICo's bearer-header transport, not production
+OIDC authorization.
+
+After the topology is active, setup enables the Site's `dpsPowerManagement`
+capability and performs an initial lifecycle smoke test through the REST API. It
+creates a VPC with a power resource group, confirms the group appears in DPS,
+waits for the VPC to become ready, deletes the VPC, and confirms DPS removes the
+group. The smoke test requires a clean deployment and fails rather than deleting
+an existing `dps-e2e-vpc` or `nico-e2e-<site-id>` resource.
 
 The post-deploy setup uses temporary port-forwards to register the site and verifies that machines from Core are visible through the REST API. To keep the REST API and Keycloak available on localhost after `devspace deploy` exits, run these in separate terminals:
 

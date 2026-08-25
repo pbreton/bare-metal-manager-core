@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+image:
+  repository: dps/dps-tls-proxy
+  tag: nico-dev
+  pullPolicy: IfNotPresent
+
+tlsSecret: dps-tls-proxy-tls
+upstreamAddress: dps-simulator-server-grpc.nico-dps.svc.cluster.local:8080

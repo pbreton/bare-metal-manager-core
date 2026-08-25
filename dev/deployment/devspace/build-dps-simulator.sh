@@ -9,6 +9,7 @@ DPS_DIR="$("${SCRIPT_DIR}/prepare-dps-simulator.sh")"
 IMAGE_TAG="${1:?usage: build-dps-simulator.sh IMAGE_TAG}"
 DPSCTL_IMAGE_TAG="${2:-dps/dpsctl:nico-dev}"
 BMC_SIMULATOR_IMAGE_TAG="${3:-dps/dps-bmc-simulator:nico-dev}"
+TLS_PROXY_IMAGE_TAG="${4:-dps/dps-tls-proxy:nico-dev}"
 
 require_bin() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -107,10 +108,12 @@ binary_dir="${DPS_DIR}/target/dist/dps-server_linux_${binary_arch}"
 ctl_binary_dir="${DPS_DIR}/target/dist/dpsctl_linux_${binary_arch}"
 bmc_simulator_binary_dir="${DPS_DIR}/target/dist/dps-bmc-simulator_linux_${binary_arch}"
 bmc_simulator_mockups_dir="${DPS_DIR}/target/dist/dps-bmc-simulator-mockups"
+tls_proxy_binary_dir="${DPS_DIR}/target/dist/dps-tls-proxy_linux_${binary_arch}"
 mkdir -p "${binary_dir}"
 mkdir -p "${ctl_binary_dir}"
 mkdir -p "${bmc_simulator_binary_dir}"
 mkdir -p "${bmc_simulator_mockups_dir}"
+mkdir -p "${tls_proxy_binary_dir}"
 cp "${SCRIPT_DIR}/dps-bmc-simulator-config.yaml" \
   "${DPS_DIR}/target/dist/dps-bmc-simulator-config.yaml"
 cp -R "${DPS_DIR}/cmd/dps-bmc-simulator/mockups/." \
@@ -150,6 +153,11 @@ commit="$(git -C "${DPS_DIR}" rev-parse HEAD)"
 build_date="$(date -u +%Y-%m-%d.%H:%M:%S)"
 ldflags="-s -w -X nvidia.com/NVIDIA/dcpower/internal/metadata.Version=0.8.0 -X nvidia.com/NVIDIA/dcpower/internal/metadata.Commit=${commit} -X nvidia.com/NVIDIA/dcpower/internal/metadata.Date=${build_date}"
 
+CGO_ENABLED=0 GOOS=linux GOARCH="${go_arch}" \
+  go build -trimpath -ldflags="-s -w" \
+    -o "${tls_proxy_binary_dir}/dps-tls-proxy" \
+    "${SCRIPT_DIR}/dps-tls-proxy.go"
+
 (
   cd "${DPS_DIR}"
   CGO_ENABLED=0 go build -ldflags="${ldflags}" \
@@ -176,4 +184,8 @@ ldflags="-s -w -X nvidia.com/NVIDIA/dcpower/internal/metadata.Version=0.8.0 -X n
     --build-arg "BINARY_ARCH=${binary_arch}" \
     --tag "${BMC_SIMULATOR_IMAGE_TAG}" \
     --file "${SCRIPT_DIR}/Dockerfile.dps-bmc-simulator" .
+  docker build --pull=false \
+    --build-arg "BINARY_ARCH=${binary_arch}" \
+    --tag "${TLS_PROXY_IMAGE_TAG}" \
+    --file "${SCRIPT_DIR}/Dockerfile.dps-tls-proxy" .
 )

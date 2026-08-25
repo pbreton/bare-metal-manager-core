@@ -1,0 +1,5 @@
+**
+!target/
+!target/dist/
+!target/dist/dps-tls-proxy_linux_*/
+!target/dist/dps-tls-proxy_linux_*/dps-tls-proxy

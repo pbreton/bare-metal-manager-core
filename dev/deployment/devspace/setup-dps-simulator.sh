@@ -67,6 +67,44 @@ wait_for_http() {
   exit 1
 }
 
+resource_group_exists() {
+  local resource_group="$1"
+  local inactive_groups active_groups
+
+  inactive_groups="$(run_dpsctl resource-group list)"
+  active_groups="$(run_dpsctl resource-group list --active)"
+  jq -e --arg resource_group "${resource_group}" '
+    .. | objects |
+    select((.groupName? // .group_name? // .name? // .Name? // "") == $resource_group)
+  ' <<<"${inactive_groups}" >/dev/null || jq -e --arg resource_group "${resource_group}" '
+    .. | objects |
+    select((.groupName? // .group_name? // .name? // .Name? // "") == $resource_group)
+  ' <<<"${active_groups}" >/dev/null
+}
+
+wait_for_vpc_status() {
+  local vpc_id="$1"
+  local expected_status="$2"
+  local response status
+
+  for _ in {1..120}; do
+    response="$(curl --fail --silent --max-time 5 \
+      "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/vpc/${vpc_id}" \
+      -H "Authorization: Bearer ${token}")"
+    status="$(jq -er '.status' <<<"${response}")"
+    if [[ "${status}" == "${expected_status}" ]]; then
+      return
+    fi
+    if [[ "${status}" == "Error" ]]; then
+      printf 'VPC %s entered Error state:\n%s\n' "${vpc_id}" "${response}" >&2
+      exit 1
+    fi
+    sleep 2
+  done
+  printf 'VPC %s did not reach %s\n' "${vpc_id}" "${expected_status}" >&2
+  exit 1
+}
+
 trap cleanup EXIT INT TERM
 
 require_bin curl
@@ -83,6 +121,8 @@ mkdir -p "${WORK_DIR}"
 kubectl rollout status statefulset/dps-simulator-server \
   -n "${DPS_NAMESPACE}" --timeout=300s >/dev/null
 kubectl rollout status deployment/bmc-gb200-simulator \
+  -n "${DPS_NAMESPACE}" --timeout=300s >/dev/null
+kubectl rollout status deployment/dps-tls-proxy \
   -n "${DPS_NAMESPACE}" --timeout=300s >/dev/null
 kubectl rollout status deployment/nico-rest-api \
   -n "${REST_NAMESPACE}" --timeout=300s >/dev/null
@@ -128,6 +168,17 @@ token="$(curl --fail --silent --max-time 5 -X POST \
   -d 'password=adminpassword' | jq -er '.access_token')"
 site_id="$(kubectl get configmap nico-rest-site-agent-config \
   -n "${REST_NAMESPACE}" -o jsonpath='{.data.CLUSTER_ID}')"
+site_response="$(curl --fail-with-body --silent --max-time 10 -X PATCH \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/site/${site_id}" \
+  -H "Authorization: Bearer ${token}" \
+  -H 'Content-Type: application/json' \
+  -d '{"capabilities":{"dpsPowerManagement":true}}')"
+if ! jq -e '.capabilities.dpsPowerManagement == true' \
+    <<<"${site_response}" >/dev/null; then
+  printf 'REST Site did not enable DPS power management:\n%s\n' \
+    "${site_response}" >&2
+  exit 1
+fi
 machines="$(curl --fail --silent --max-time 10 \
   "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/machine?siteId=${site_id}&isMissingOnSite=false&pageSize=100" \
   -H "Authorization: Bearer ${token}")"
@@ -185,3 +236,49 @@ fi
 
 printf 'DPS simulator topology nico-dev is active with %s NICo machine IDs\n' \
   "$(jq 'length' <<<"${machine_ids}")"
+
+tenant_id="$(curl --fail-with-body --silent --max-time 10 \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/tenant/current" \
+  -H "Authorization: Bearer ${token}" | jq -er '.id')"
+resource_group="nico-e2e-${site_id}"
+existing_vpc_id="$(curl --fail-with-body --silent --max-time 10 \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/vpc?pageSize=100" \
+  -H "Authorization: Bearer ${token}" | jq -r \
+  --arg name 'dps-e2e-vpc' '.[] | select(.name == $name) | .id' | head -n 1)"
+if [[ -n "${existing_vpc_id}" ]] || resource_group_exists "${resource_group}"; then
+  printf 'DPS E2E VPC or resource group already exists; use a clean test deployment\n' >&2
+  exit 1
+fi
+
+vpc_payload="$(jq -cn \
+  --arg name 'dps-e2e-vpc' \
+  --arg site_id "${site_id}" \
+  --arg resource_group "${resource_group}" \
+  '{name: $name, siteId: $site_id, networkVirtualizationType: "ETHERNET_VIRTUALIZER", powerResourceGroup: $resource_group}')"
+vpc_response="$(curl --fail-with-body --silent --max-time 30 -X POST \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/vpc" \
+  -H "Authorization: Bearer ${token}" \
+  -H 'Content-Type: application/json' \
+  -d "${vpc_payload}")"
+vpc_id="$(jq -er '.id' <<<"${vpc_response}")"
+if ! resource_group_exists "${resource_group}"; then
+  printf 'NICo VPC creation did not create DPS resource group %s\n' \
+    "${resource_group}" >&2
+  exit 1
+fi
+wait_for_vpc_status "${vpc_id}" Ready
+
+curl --fail-with-body --silent --max-time 30 -X DELETE \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/vpc/${vpc_id}" \
+  -H "Authorization: Bearer ${token}" >/dev/null
+for _ in {1..60}; do
+  if ! resource_group_exists "${resource_group}"; then
+    printf 'NICo direct DPS VPC lifecycle succeeded for Tenant %s\n' \
+      "${tenant_id}"
+    exit 0
+  fi
+  sleep 1
+done
+printf 'NICo VPC deletion did not remove DPS resource group %s\n' \
+  "${resource_group}" >&2
+exit 1

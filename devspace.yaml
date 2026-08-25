@@ -385,12 +385,21 @@ profiles:
               - dev/deployment/devspace/Dockerfile.dps-bmc-simulator
               - dev/deployment/devspace/Dockerfile.dps-bmc-simulator.dockerignore
               - dev/deployment/devspace/Dockerfile.dps-simulator
+              - dev/deployment/devspace/Dockerfile.dps-tls-proxy
+              - dev/deployment/devspace/Dockerfile.dps-tls-proxy.dockerignore
               - dev/deployment/devspace/Dockerfile.dpsctl
               - dev/deployment/devspace/Dockerfile.dpsctl.dockerignore
               - dev/deployment/devspace/dps-bmc-simulator-config.yaml
               - dev/deployment/devspace/dps-bmc-simulator-values.yaml
               - dev/deployment/devspace/dps-buf.gen.api.yaml
               - dev/deployment/devspace/dps-buf.gen.go.yaml
+              - dev/deployment/devspace/dps-tls-openssl.cnf
+              - dev/deployment/devspace/dps-tls-proxy.go
+              - dev/deployment/devspace/dps-tls-proxy_test.go
+              - dev/deployment/devspace/dps-tls-proxy/Chart.yaml
+              - dev/deployment/devspace/dps-tls-proxy/values.yaml
+              - dev/deployment/devspace/dps-tls-proxy/templates/resources.yaml
+              - dev/deployment/devspace/prepare-dps-client-security.sh
               - dev/deployment/devspace/prepare-dps-simulator.sh
               - dev/deployment/devspace/render-dps-topology.sh
               - dev/deployment/devspace/setup-dps-simulator.sh
@@ -422,6 +431,29 @@ profiles:
             valuesFiles:
               - dev/deployment/devspace/dps-bmc-simulator-values.yaml
       - op: add
+        path: deployments.dps-tls-proxy
+        value:
+          namespace: nico-dps
+          updateImageTags: false
+          helm:
+            chart:
+              path: ./dev/deployment/devspace/dps-tls-proxy
+      - op: add
+        path: deployments.nico-rest.helm.values.nico-rest-api.config.powerProvisioning
+        value:
+          mode: dps
+          dps:
+            endpoint: dps-tls-proxy.nico-dps.svc.cluster.local:8443
+            requestTimeout: 15s
+            tokenPath: /var/secrets/dps/token
+            tls:
+              caPath: /var/secrets/dps/ca.crt
+              serverName: dps-tls-proxy.nico-dps.svc.cluster.local
+      - op: add
+        path: deployments.nico-rest.helm.values.nico-rest-api.secrets
+        value:
+          dps: dps-client-credentials
+      - op: add
         path: hooks
         value:
           name: prepare-dps-simulator-source
@@ -440,7 +472,8 @@ profiles:
                 kind load docker-image --name "${CONTEXT#kind-}" \
                   "${runtime.images.dps-simulator.image}:${runtime.images.dps-simulator.tag}" \
                   "dps/dpsctl:nico-dev" \
-                  "dps/dps-bmc-simulator:nico-dev"
+                  "dps/dps-bmc-simulator:nico-dev" \
+                  "dps/dps-tls-proxy:nico-dev"
                 if kubectl get statefulset/dps-simulator-server \
                     -n nico-dps >/dev/null 2>&1; then
                   kubectl rollout restart statefulset/dps-simulator-server \
@@ -451,8 +484,19 @@ profiles:
                   kubectl rollout restart deployment/bmc-gb200-simulator \
                     -n nico-dps
                 fi
+                if kubectl get deployment/dps-tls-proxy \
+                    -n nico-dps >/dev/null 2>&1; then
+                  kubectl rollout restart deployment/dps-tls-proxy \
+                    -n nico-dps
+                fi
                 ;;
             esac
+      - op: add
+        path: hooks
+        value:
+          name: prepare-dps-client-security
+          events: ["before:deploy"]
+          command: dev/deployment/devspace/prepare-dps-client-security.sh
       - op: add
         path: hooks
         value:
