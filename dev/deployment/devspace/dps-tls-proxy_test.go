@@ -4,11 +4,20 @@
 package main
 
 import (
+	"crypto/tls"
 	"io"
 	"net"
+	"slices"
 	"testing"
 	"time"
 )
+
+func TestServerTLSConfigAdvertisesHTTP2(t *testing.T) {
+	config := serverTLSConfig(tls.Certificate{})
+	if !slices.Contains(config.NextProtos, "h2") {
+		t.Fatalf("TLS ALPN protocols = %v, want h2", config.NextProtos)
+	}
+}
 
 func TestProxyConnection(t *testing.T) {
 	upstreamListener, err := net.Listen("tcp", "127.0.0.1:0")

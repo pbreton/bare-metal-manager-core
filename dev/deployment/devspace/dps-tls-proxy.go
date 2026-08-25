@@ -58,6 +58,14 @@ func requiredEnv(name string) string {
 	return value
 }
 
+func serverTLSConfig(certificate tls.Certificate) *tls.Config {
+	return &tls.Config{
+		Certificates: []tls.Certificate{certificate},
+		MinVersion:   tls.VersionTLS12,
+		NextProtos:   []string{"h2"},
+	}
+}
+
 func main() {
 	listenAddress := requiredEnv("LISTEN_ADDRESS")
 	upstreamAddress := requiredEnv("UPSTREAM_ADDRESS")
@@ -66,10 +74,7 @@ func main() {
 		log.Fatalf("load DPS proxy TLS key pair: %v", err)
 	}
 
-	listener, err := tls.Listen("tcp", listenAddress, &tls.Config{
-		Certificates: []tls.Certificate{certificate},
-		MinVersion:   tls.VersionTLS12,
-	})
+	listener, err := tls.Listen("tcp", listenAddress, serverTLSConfig(certificate))
 	if err != nil {
 		log.Fatalf("listen for DPS TLS connections: %v", err)
 	}
