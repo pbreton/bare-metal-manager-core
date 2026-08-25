@@ -261,11 +261,14 @@ vpc_payload="$(jq -cn \
   --arg site_id "${site_id}" \
   --arg resource_group "${resource_group}" \
   '{name: $name, siteId: $site_id, networkVirtualizationType: "ETHERNET_VIRTUALIZER", powerResourceGroup: $resource_group}')"
-vpc_response="$(curl --fail-with-body --silent --max-time 30 -X POST \
+if ! vpc_response="$(curl --fail-with-body --silent --max-time 30 -X POST \
   "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/vpc" \
   -H "Authorization: Bearer ${token}" \
   -H 'Content-Type: application/json' \
-  -d "${vpc_payload}")"
+  -d "${vpc_payload}")"; then
+  printf 'NICo VPC creation failed:\n%s\n' "${vpc_response}" >&2
+  exit 1
+fi
 vpc_id="$(jq -er '.id' <<<"${vpc_response}")"
 if ! resource_group_exists "${resource_group}"; then
   printf 'NICo VPC creation did not create DPS resource group %s\n' \
