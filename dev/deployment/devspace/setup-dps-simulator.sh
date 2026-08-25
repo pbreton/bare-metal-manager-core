@@ -14,6 +14,7 @@ API_FORWARD_PORT="${LOCAL_DEV_REST_API_FORWARD_PORT:-18388}"
 KEYCLOAK_FORWARD_PORT="${LOCAL_DEV_KEYCLOAK_FORWARD_PORT:-18082}"
 WORK_DIR="${LOCAL_DEV_DPS_WORK_DIR:-${HOME}/Developer/_agent-tmp/devspace-dps}"
 DPSCTL="${REPO_ROOT}/.devspace/dps-tools/bin/dpsctl"
+MACHINE_IDS_JSON="${LOCAL_DEV_DPS_MACHINE_IDS_JSON:-}"
 
 dps_forward_pid=""
 api_forward_pid=""
@@ -179,16 +180,21 @@ if ! jq -e '.capabilities.dpsPowerManagement == true' \
     "${site_response}" >&2
   exit 1
 fi
-machines="$(curl --fail --silent --max-time 10 \
-  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/machine?siteId=${site_id}&isMissingOnSite=false&pageSize=100" \
-  -H "Authorization: Bearer ${token}")"
+if [[ -n "${MACHINE_IDS_JSON}" ]]; then
+  machines="${MACHINE_IDS_JSON}"
+else
+  machines="$(curl --fail --silent --max-time 10 \
+    "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/machine?siteId=${site_id}&isMissingOnSite=false&pageSize=100" \
+    -H "Authorization: Bearer ${token}")"
+fi
 machine_ids="$(jq -ce '
   if type != "array" then
-    error("REST machine response is not an array")
+    error("machine ID input is not an array")
   else
-    [.[].id | select(type == "string" and length > 0)] | unique | sort
+    [.[] | if type == "object" then .id else . end |
+      select(type == "string" and length > 0)] | unique | sort
   end |
-  if length == 0 then error("REST reported no machine IDs") else . end
+  if length == 0 then error("machine ID input is empty") else . end
 ' <<<"${machines}")"
 
 topology_file="${WORK_DIR}/topology.json"

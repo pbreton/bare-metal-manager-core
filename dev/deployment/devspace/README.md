@@ -269,6 +269,12 @@ waits for the VPC to become ready, deletes the VPC, and confirms DPS removes the
 group. The smoke test requires a clean deployment and fails rather than deleting
 an existing `dps-e2e-vpc` or `nico-e2e-<site-id>` resource.
 
+By default, setup obtains topology machine IDs from the REST inventory. To run
+the DPS lifecycle smoke independently while diagnosing an incomplete local
+inventory, set `LOCAL_DEV_DPS_MACHINE_IDS_JSON` to a non-empty JSON array of
+machine ID strings. This test-only override affects the DPS topology fixture;
+it does not add the machines to NICo or bypass Site capability checks.
+
 The post-deploy setup uses temporary port-forwards to register the site and verifies that machines from Core are visible through the REST API. To keep the REST API and Keycloak available on localhost after `devspace deploy` exits, run these in separate terminals:
 
 ```bash
