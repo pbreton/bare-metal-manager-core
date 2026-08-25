@@ -58,6 +58,9 @@ func TestSetupSchema(t *testing.T, dbSession *cdb.Session) {
 	// create NVLinkLogicalPartition table (before VPC to avoid foreign key issues)
 	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.NVLinkLogicalPartition)(nil))
 	assert.Nil(t, err)
+	// create SPX Partition table
+	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.SpxPartition)(nil))
+	assert.Nil(t, err)
 	// create VPC table
 	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.Vpc)(nil))
 	assert.Nil(t, err)

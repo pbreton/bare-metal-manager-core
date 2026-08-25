@@ -103,7 +103,9 @@ import (
 	dpuExtensionServiceWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/dpuextensionservice"
 
 	nvLinkLogicalPartitionActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/nvlinklogicalpartition"
+	spxPartitionActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/spxpartition"
 	nvLinkLogicalPartitionWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/nvlinklogicalpartition"
+	spxPartitionWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/spxpartition"
 )
 
 const (
@@ -331,6 +333,9 @@ func main() {
 
 		// NVLink Logical Partition workflow
 		w.RegisterWorkflow(nvLinkLogicalPartitionWorkflow.UpdateNVLinkLogicalPartitionInventory)
+
+		// SPX Partition workflow
+		w.RegisterWorkflow(spxPartitionWorkflow.UpdateSpxPartitionInventory)
 	}
 
 	// Metric setup has to precede the activity registrations below, because the
@@ -444,6 +449,10 @@ func main() {
 	// NVLink Logical Partition activities
 	nvLinkLogicalPartitionManager := nvLinkLogicalPartitionActivity.NewManageNVLinkLogicalPartition(dbSession, siteClientPool)
 	w.RegisterActivity(&nvLinkLogicalPartitionManager)
+
+	// SPX Partition activities
+	spxPartitionManager := spxPartitionActivity.NewManageSpxPartition(dbSession)
+	w.RegisterActivity(&spxPartitionManager)
 
 	if tcfg.Namespace == cwfn.CloudNamespace {
 		// User activities

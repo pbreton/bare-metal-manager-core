@@ -23,6 +23,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/operatingsystem"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/site"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/sku"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/spxpartition"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/sshkeygroup"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/subnet"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/tenant"
@@ -165,6 +166,11 @@ func (m *Manager) DpuExtensionService() *dpuextensionservice.API {
 // NVLinkLogicalPartition - Add NVLinkLogicalPartition Manager instance here
 func (m *Manager) NVLinkLogicalPartition() *nvlinklogicalpartition.API {
 	return nvlinklogicalpartition.NewNVLinkLogicalPartitionManager(m.Data.EB, m.API, m.Conf)
+}
+
+// SpxPartition - Add SPX Partition Manager instance here
+func (m *Manager) SpxPartition() *spxpartition.API {
+	return spxpartition.NewSpxPartitionManager(m.Data.EB, m.API, m.Conf)
 }
 
 // FlowGrpc - Add Flow gRPC Manager instance here

@@ -222,6 +222,20 @@ message NVLinkLogicalPartitionInventory {
   InventoryPage inventory_page = 5;
 }
 
+// SpxPartitionInventory - inventory info of all SPX Partitions on Site, collected periodically
+message SpxPartitionInventory {
+  // Status of Inventory
+  InventoryStatus inventory_status = 1;
+  // Status message
+  string status_msg = 2;
+  // Reported timestamp of SPX Partition inventory
+  google.protobuf.Timestamp timestamp = 3;
+  // List of SPX Partitions
+  repeated forge.SpxPartition spx_partitions = 4;
+  // Inventory page information
+  InventoryPage inventory_page = 5;
+}
+
 // OsImageInventory - inventory info for all OS Images on Site, collected periodically
 message OsImageInventory {
   // List of OS Images

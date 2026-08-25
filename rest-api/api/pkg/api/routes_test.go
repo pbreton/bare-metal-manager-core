@@ -53,6 +53,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"infiniband-partition":      5,
 		"nvlink-interface":          2,
 		"nvlink-logical-partition":  4,
+		"spx-partition":             4,
 		"expected-machine":          7,
 		"expected-power-shelf":      5,
 		"expected-rack":             7,

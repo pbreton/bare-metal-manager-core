@@ -51,6 +51,7 @@ type ManagerAPI struct {
 	SKU                    SKUInterface
 	DpuExtensionService    DpuExtensionServiceInterface
 	NVLinkLogicalPartition NVLinkLogicalPartitionInterface
+	SpxPartition           SpxPartitionInterface
 	FlowGrpc               FlowGrpcInterface
 	TenantIdentity         TenantIdentityInterface
 }

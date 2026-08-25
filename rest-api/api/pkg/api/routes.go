@@ -477,6 +477,27 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodDelete,
 			Handler: apiHandler.NewDeleteNVLinkLogicalPartitionHandler(dbSession, tc, scp, cfg),
 		},
+		// SPX Partition endpoints
+		{
+			Path:    apiPathPrefix + "/spx-partition",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateSpxPartitionHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/spx-partition",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllSpxPartitionHandler(dbSession),
+		},
+		{
+			Path:    apiPathPrefix + "/spx-partition/:id",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetSpxPartitionHandler(dbSession),
+		},
+		{
+			Path:    apiPathPrefix + "/spx-partition/:id",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteSpxPartitionHandler(dbSession, scp),
+		},
 		// ExpectedMachine endpoints
 		{
 			Path:    apiPathPrefix + "/expected-machine",

@@ -6197,6 +6197,216 @@ paths:
         Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
       tags:
         - NVLink Logical Partition
+  '/v2/org/{org}/nico/spx-partition':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the NGC Org
+    get:
+      summary: Retrieve all SPX Partitions
+      operationId: get-all-spx-partition
+      description: |-
+        Retrieve SPX Partitions owned by the authenticated org's Tenant.
+
+        User must have an authorization role with the `TENANT_ADMIN` suffix. Results are ordered by `CREATED_ASC` by default, with the partition UUID used as a deterministic tie-breaker before pagination. Partitions absent from Core beyond the inventory staleness grace period are omitted until Core reports them again.
+      tags:
+        - SPX Partition
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: query
+          name: siteId
+          description: Filter SPX Partitions by Site
+        - schema:
+            type: string
+          in: query
+          name: name
+          description: Filter SPX Partitions by exact name
+        - schema:
+            type: integer
+            format: uint32
+            minimum: 0
+            maximum: 4294967295
+          in: query
+          name: vni
+          description: Filter SPX Partitions by exact VNI
+        - schema:
+            type: string
+          in: query
+          name: query
+          description: Search for matches in SPX Partition name, description, and labels
+        - schema:
+            type: string
+            enum:
+              - Site
+              - Tenant
+          in: query
+          name: includeRelation
+          description: Related entity to expand. May be specified more than once
+        - schema:
+            $ref: '#/components/schemas/PageNumber'
+            default: 1
+          in: query
+          name: pageNumber
+          description: Page number for pagination query
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          in: query
+          name: pageSize
+          description: Number of results per page
+        - schema:
+            type: string
+            enum:
+              - NAME_ASC
+              - NAME_DESC
+              - VNI_ASC
+              - VNI_DESC
+              - CREATED_ASC
+              - CREATED_DESC
+              - UPDATED_ASC
+              - UPDATED_DESC
+            default: CREATED_ASC
+          in: query
+          name: orderBy
+          description: Ordering for pagination. Equal values are ordered by partition UUID in the same direction
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":30,"orderBy":"CREATED_ASC"}'
+              description: Pagination result in JSON format
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SpxPartition'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+    post:
+      summary: Create SPX Partition
+      operationId: create-spx-partition
+      description: |-
+        Create an SPX Partition for the authenticated org's Tenant. Core is the source of truth and returns the accepted or allocated VNI synchronously.
+
+        Omitting `vni` asks Core to allocate one. Supplying `vni` requests that exact value; Core fails the request when that value is unavailable and does not substitute another VNI. The configured pool range is deployment data, so this API does not impose a narrower range than Core's `uint32` wire contract.
+      tags:
+        - SPX Partition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpxPartitionCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpxPartition'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          description: The requested Site does not exist
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          description: An SPX Partition with the requested name already exists for the Tenant at the Site
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+        '412':
+          description: Core rejected the exact requested VNI because it is outside the configured pool or already allocated
+          $ref: '#/components/responses/GenericHttpError'
+        '429':
+          description: Core could not allocate a VNI because the configured pool is exhausted
+          $ref: '#/components/responses/ResourceExhaustedError'
+        '502':
+          description: Core returned an invalid SPX Partition after creation
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          description: Core is unavailable
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
+  '/v2/org/{org}/nico/spx-partition/{spxPartitionId}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the NGC Org
+      - schema:
+          type: string
+          format: uuid
+        name: spxPartitionId
+        in: path
+        required: true
+        description: ID of the SPX Partition
+    get:
+      summary: Retrieve SPX Partition
+      operationId: get-spx-partition
+      description: Retrieve a Core-reported SPX Partition owned by the authenticated org's Tenant
+      tags:
+        - SPX Partition
+      parameters:
+        - schema:
+            type: string
+            enum:
+              - Site
+              - Tenant
+          in: query
+          name: includeRelation
+          description: Related entity to expand. May be specified more than once
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpxPartition'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '503':
+          description: Core is unavailable
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
+    delete:
+      summary: Delete SPX Partition
+      operationId: delete-spx-partition
+      description: Delete an SPX Partition in Core, then remove its REST projection. A Core not-found response is treated as an already-completed deletion
+      tags:
+        - SPX Partition
+      responses:
+        '204':
+          description: SPX Partition deleted
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
   '/v2/org/{org}/nico/instance/type':
     parameters:
       - schema:
@@ -20229,6 +20439,131 @@ components:
             - string
             - 'null'
           description: Updated description for the NVLink Logical Partition
+    SpxPartition:
+      title: SpxPartition
+      type: object
+      description: A tenant-owned Spectrum-X fabric partition. Core is the source of truth for its existence, identity, ownership, name, description, and VNI; labels are REST presentation metadata
+      examples:
+        - id: ded96bdf-905e-40dd-8a58-3472aab60042
+          name: training-fabric
+          description: SPX partition for model training
+          siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+          site: null
+          tenantId: f97df110-f4de-492e-8849-4a6af68026b0
+          tenant: null
+          vni: 4242
+          labels:
+            environment: production
+          created: '2019-08-24T14:15:22Z'
+          updated: '2019-08-24T14:15:22Z'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Unique ID shared by the REST projection and Core SPX Partition
+        name:
+          type: string
+          minLength: 2
+          maxLength: 256
+          description: Name of the SPX Partition
+        description:
+          type:
+            - string
+            - 'null'
+          description: Optional description of the SPX Partition
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the SPX Partition
+        site:
+          anyOf:
+            - $ref: '#/components/schemas/SiteSummary'
+            - type: 'null'
+          description: Site summary when the Site relation is requested; otherwise null
+        tenantId:
+          type: string
+          format: uuid
+          description: ID of the Tenant that owns the SPX Partition
+        tenant:
+          anyOf:
+            - $ref: '#/components/schemas/TenantSummary'
+            - type: 'null'
+          description: Tenant summary when the Tenant relation is requested; otherwise null
+        vni:
+          type: integer
+          format: uint32
+          minimum: 0
+          maximum: 4294967295
+          readOnly: true
+          description: Exact VNI accepted or allocated by Core
+        labels:
+          $ref: '#/components/schemas/Labels'
+          description: REST presentation metadata retained independently of Core inventory. An SPX Partition without labels returns an empty object
+        created:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Date and time the REST projection was created
+        updated:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Date and time the REST projection was last reconciled or updated
+      required:
+        - id
+        - name
+        - description
+        - siteId
+        - site
+        - tenantId
+        - tenant
+        - vni
+        - labels
+        - created
+        - updated
+    SpxPartitionCreateRequest:
+      title: SpxPartitionCreateRequest
+      type: object
+      description: Request data to create an SPX Partition
+      examples:
+        - name: training-fabric
+          description: SPX partition for model training
+          siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+          vni: 4242
+          labels:
+            environment: production
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 256
+          description: Name of the SPX Partition
+        description:
+          type:
+            - string
+            - 'null'
+          description: Optional description of the SPX Partition
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the SPX Partition is created
+        vni:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          minimum: 0
+          maximum: 4294967295
+          description: Exact VNI requested from Core. Omit or set to null to request allocation from the configured Core pool
+        labels:
+          anyOf:
+            - $ref: '#/components/schemas/Labels'
+            - type: 'null'
+          description: Optional user-defined key-value labels
+      required:
+        - name
+        - siteId
     OperatingSystem:
       title: OperatingSystem
       type: object

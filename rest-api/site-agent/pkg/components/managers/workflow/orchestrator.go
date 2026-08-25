@@ -265,6 +265,7 @@ func workflowOrchestrator() error {
 
 	ManagerAccess.API.NVLinkLogicalPartition.RegisterSubscriber()
 	ManagerAccess.API.NVLinkLogicalPartition.RegisterPublisher()
+	ManagerAccess.API.SpxPartition.RegisterPublisher()
 
 	ManagerAccess.API.TenantIdentity.RegisterSubscriber()
 
