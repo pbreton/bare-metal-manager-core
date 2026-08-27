@@ -19,8 +19,39 @@ MACHINE_IDS_JSON="${LOCAL_DEV_DPS_MACHINE_IDS_JSON:-}"
 dps_forward_pid=""
 api_forward_pid=""
 keycloak_forward_pid=""
+token=""
+instance_id=""
+subnet_id=""
+vpc_id=""
+tenant_account_id=""
+tenant_account_capabilities=""
 
 cleanup() {
+  if [[ -n "${token}" ]]; then
+    if [[ -n "${instance_id}" ]]; then
+      curl --silent --max-time 30 -X DELETE \
+        "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/instance/${instance_id}" \
+        -H "Authorization: Bearer ${token}" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "${subnet_id}" ]]; then
+      curl --silent --max-time 30 -X DELETE \
+        "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/subnet/${subnet_id}" \
+        -H "Authorization: Bearer ${token}" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "${vpc_id}" ]]; then
+      curl --silent --max-time 30 -X DELETE \
+        "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/vpc/${vpc_id}" \
+        -H "Authorization: Bearer ${token}" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "${tenant_account_id}" && -n "${tenant_account_capabilities}" ]]; then
+      curl --silent --max-time 30 -X PATCH \
+        "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/tenant/account/${tenant_account_id}" \
+        -H "Authorization: Bearer ${token}" \
+        -H 'Content-Type: application/json' \
+        -d "$(jq -cn --argjson capabilities "${tenant_account_capabilities}" \
+          '{siteCapabilities: $capabilities}')" >/dev/null 2>&1 || true
+    fi
+  fi
   for pid in "${dps_forward_pid}" "${api_forward_pid}" "${keycloak_forward_pid}"; do
     if [[ -n "${pid}" ]]; then
       kill "${pid}" >/dev/null 2>&1 || true
@@ -83,6 +114,67 @@ resource_group_exists() {
   ' <<<"${active_groups}" >/dev/null
 }
 
+resource_group_state() {
+  local resource_group="$1"
+  local inactive_groups active_groups
+
+  inactive_groups="$(run_dpsctl resource-group list)"
+  active_groups="$(run_dpsctl resource-group list --active)"
+  jq -cen \
+    --arg resource_group "${resource_group}" \
+    --argjson inactive "${inactive_groups}" \
+    --argjson active "${active_groups}" '
+      [($inactive, $active) |
+        (.resourceGroups // .resource_groups // .ResourceGroups // [])[]? |
+        select((.groupName // .group_name // .GroupName // "") == $resource_group)] |
+      first // empty
+    '
+}
+
+resource_group_has_profile() {
+  local resource_group="$1"
+  local machine_id="$2"
+  local profile="$3"
+  local state
+
+  state="$(resource_group_state "${resource_group}")" || return 1
+  jq -e --arg machine_id "${machine_id}" --arg profile "${profile}" '
+    ((.resourceNames // .resource_names // .ResourceNames // []) |
+      index($machine_id) != null) and
+    ([(.resourcePolicies // .resource_policies // .ResourcePolicies // [])[]? |
+      select((.resourceName // .resource_name // .ResourceName // "") == $machine_id) |
+      (.policyName // .policy_name // .PolicyName // "")] | index($profile) != null)
+  ' <<<"${state}" >/dev/null
+}
+
+resource_group_has_no_profile() {
+  local resource_group="$1"
+  local machine_id="$2"
+  local state
+
+  state="$(resource_group_state "${resource_group}")" || return 1
+  jq -e --arg machine_id "${machine_id}" '
+    ((.resourceNames // .resource_names // .ResourceNames // []) |
+      index($machine_id) != null) and
+    ([(.resourcePolicies // .resource_policies // .ResourcePolicies // [])[]? |
+      select((.resourceName // .resource_name // .ResourceName // "") == $machine_id) |
+      (.policyName // .policy_name // .PolicyName // "") |
+      select(length > 0)] | length == 0)
+  ' <<<"${state}" >/dev/null
+}
+
+resource_group_has_no_machine() {
+  local resource_group="$1"
+  local machine_id="$2"
+  local state
+
+  state="$(resource_group_state "${resource_group}")" || return 1
+  jq -e --arg machine_id "${machine_id}" '
+    (.resourceNames // .resource_names // .ResourceNames // []) |
+    index($machine_id) == null
+  ' <<<"${state}" >/dev/null
+}
+
 wait_for_vpc_status() {
   local vpc_id="$1"
   local expected_status="$2"
@@ -103,6 +195,44 @@ wait_for_vpc_status() {
     sleep 2
   done
   printf 'VPC %s did not reach %s\n' "${vpc_id}" "${expected_status}" >&2
+  exit 1
+}
+
+wait_for_subnet_status() {
+  local subnet_id="$1"
+  local expected_status="$2"
+  local response status
+
+  for _ in {1..120}; do
+    response="$(curl --fail --silent --max-time 5 \
+      "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/subnet/${subnet_id}" \
+      -H "Authorization: Bearer ${token}")"
+    status="$(jq -er '.status' <<<"${response}")"
+    if [[ "${status}" == "${expected_status}" ]]; then
+      return
+    fi
+    if [[ "${status}" == "Error" ]]; then
+      printf 'Subnet %s entered Error state:\n%s\n' "${subnet_id}" "${response}" >&2
+      exit 1
+    fi
+    sleep 2
+  done
+  printf 'Subnet %s did not reach %s\n' "${subnet_id}" "${expected_status}" >&2
+  exit 1
+}
+
+wait_for_absence() {
+  local resource_name="$1"
+  local url="$2"
+
+  for _ in {1..120}; do
+    if [[ "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+      --max-time 5 "${url}" -H "Authorization: Bearer ${token}")" == "404" ]]; then
+      return
+    fi
+    sleep 1
+  done
+  printf '%s was not deleted: %s\n' "${resource_name}" "${url}" >&2
   exit 1
 }
 
@@ -294,8 +424,54 @@ if [[ -z "${allocation_id}" ]]; then
   fi
   allocation_id="$(jq -er '.id' <<<"${allocation_response}")"
 fi
+allocation_response="$(curl --fail-with-body --silent --max-time 10 \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/allocation/${allocation_id}" \
+  -H "Authorization: Bearer ${token}")"
+tenant_ip_block_id="$(jq -er '
+  [.allocationConstraints[] |
+    select(.resourceType == "IPBlock" and .derivedResourceId != null) |
+    .derivedResourceId] | first
+' <<<"${allocation_response}")"
 printf 'NICo tenant %s has test Allocation %s for Site %s\n' \
   "${tenant_id}" "${allocation_id}" "${site_id}"
+
+tenant_accounts_response="$(curl --fail-with-body --silent --max-time 10 \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/tenant/account?tenantId=${tenant_id}&pageSize=100" \
+  -H "Authorization: Bearer ${token}")"
+tenant_account="$(jq -cer \
+  --arg tenant_id "${tenant_id}" \
+  '[.[] | select(.tenantId == $tenant_id and .status == "Ready")] | first' \
+  <<<"${tenant_accounts_response}")"
+tenant_account_id="$(jq -er '.id' <<<"${tenant_account}")"
+tenant_account_capabilities="$(jq -c \
+  '.siteCapabilities // [{siteIds: [], targetedInstanceCreation: false}]' \
+  <<<"${tenant_account}")"
+tenant_account_response="$(curl --fail-with-body --silent --max-time 10 -X PATCH \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/tenant/account/${tenant_account_id}" \
+  -H "Authorization: Bearer ${token}" \
+  -H 'Content-Type: application/json' \
+  -d '{"siteCapabilities":[{"siteIds":[],"targetedInstanceCreation":true}]}')"
+if ! jq -e '
+    [.siteCapabilities[]? |
+      select(((.siteIds // []) | length == 0) and
+        .targetedInstanceCreation == true)] | length == 1
+  ' <<<"${tenant_account_response}" >/dev/null; then
+  printf 'NICo Tenant Account did not enable targeted Instance creation:\n%s\n' \
+    "${tenant_account_response}" >&2
+  exit 1
+fi
+
+policy_response="$(run_dpsctl policy list)"
+for profile in balanced performance; do
+  if ! jq -e --arg profile "${profile}" '
+      .. | objects |
+      select((.policyName? // .policy_name? // .name? // .Name? // "") == $profile)
+    ' <<<"${policy_response}" >/dev/null; then
+    printf 'DPS simulator policy %s is missing:\n%s\n' \
+      "${profile}" "${policy_response}" >&2
+    exit 1
+  fi
+done
 
 resource_group="nico-e2e-${site_id}"
 existing_vpc_id="$(curl --fail-with-body --silent --max-time 10 \
@@ -328,12 +504,123 @@ if ! resource_group_exists "${resource_group}"; then
 fi
 wait_for_vpc_status "${vpc_id}" Ready
 
+subnet_payload="$(jq -cn \
+  --arg name 'dps-e2e-subnet' \
+  --arg vpc_id "${vpc_id}" \
+  --arg ip_block_id "${tenant_ip_block_id}" \
+  '{name: $name, vpcId: $vpc_id, ipv4BlockId: $ip_block_id, prefixLength: 31}')"
+if ! subnet_response="$(curl --fail-with-body --silent --max-time 30 -X POST \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/subnet" \
+  -H "Authorization: Bearer ${token}" \
+  -H 'Content-Type: application/json' \
+  -d "${subnet_payload}")"; then
+  printf 'NICo Subnet creation failed:\n%s\n' "${subnet_response}" >&2
+  exit 1
+fi
+subnet_id="$(jq -er '.id' <<<"${subnet_response}")"
+wait_for_subnet_status "${subnet_id}" Ready
+
+machine_id="$(jq -er '.[0]' <<<"${machine_ids}")"
+instance_payload="$(jq -cn \
+  --arg name 'dps-e2e-instance' \
+  --arg tenant_id "${tenant_id}" \
+  --arg machine_id "${machine_id}" \
+  --arg vpc_id "${vpc_id}" \
+  --arg subnet_id "${subnet_id}" \
+  '{name: $name, tenantId: $tenant_id, machineId: $machine_id,
+    vpcId: $vpc_id, ipxeScript: "#!ipxe\nexit", allowUnhealthyMachine: true,
+    powerProfile: "balanced",
+    interfaces: [{subnetId: $subnet_id, isPhysical: true}]}')"
+if ! instance_response="$(curl --fail-with-body --silent --max-time 120 -X POST \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/instance" \
+  -H "Authorization: Bearer ${token}" \
+  -H 'Content-Type: application/json' \
+  -d "${instance_payload}")"; then
+  printf 'NICo Instance creation failed:\n%s\n' "${instance_response}" >&2
+  exit 1
+fi
+instance_id="$(jq -er '.id' <<<"${instance_response}")"
+if ! jq -e '.powerProfile == "balanced"' <<<"${instance_response}" >/dev/null; then
+  printf 'NICo Instance creation did not persist the balanced profile:\n%s\n' \
+    "${instance_response}" >&2
+  exit 1
+fi
+for _ in {1..60}; do
+  if resource_group_has_profile "${resource_group}" "${machine_id}" balanced; then
+    break
+  fi
+  sleep 1
+done
+if ! resource_group_has_profile "${resource_group}" "${machine_id}" balanced; then
+  printf 'DPS resource group %s did not associate Machine %s with profile balanced\n' \
+    "${resource_group}" "${machine_id}" >&2
+  exit 1
+fi
+
+if ! instance_response="$(curl --fail-with-body --silent --max-time 120 -X PATCH \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/instance/${instance_id}" \
+  -H "Authorization: Bearer ${token}" \
+  -H 'Content-Type: application/json' \
+  -d '{"powerProfile":"performance"}')"; then
+  printf 'NICo Instance power-profile update failed:\n%s\n' \
+    "${instance_response}" >&2
+  exit 1
+fi
+if ! jq -e '.powerProfile == "performance"' <<<"${instance_response}" >/dev/null ||
+    ! resource_group_has_profile "${resource_group}" "${machine_id}" performance; then
+  printf 'Instance %s did not update to DPS profile performance\n' \
+    "${instance_id}" >&2
+  exit 1
+fi
+
+if ! instance_response="$(curl --fail-with-body --silent --max-time 120 -X PATCH \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/instance/${instance_id}" \
+  -H "Authorization: Bearer ${token}" \
+  -H 'Content-Type: application/json' \
+  -d '{"powerProfile":""}')"; then
+  printf 'NICo Instance power-profile clear failed:\n%s\n' \
+    "${instance_response}" >&2
+  exit 1
+fi
+if ! jq -e '.powerProfile == null' <<<"${instance_response}" >/dev/null ||
+    ! resource_group_has_no_profile "${resource_group}" "${machine_id}"; then
+  printf 'Instance %s did not clear its DPS power profile\n' \
+    "${instance_id}" >&2
+  exit 1
+fi
+
+curl --fail-with-body --silent --max-time 120 -X DELETE \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/instance/${instance_id}" \
+  -H "Authorization: Bearer ${token}" >/dev/null
+for _ in {1..60}; do
+  if resource_group_has_no_machine "${resource_group}" "${machine_id}"; then
+    break
+  fi
+  sleep 1
+done
+if ! resource_group_has_no_machine "${resource_group}" "${machine_id}"; then
+  printf 'NICo Instance deletion did not remove Machine %s from DPS group %s\n' \
+    "${machine_id}" "${resource_group}" >&2
+  exit 1
+fi
+wait_for_absence "Instance ${instance_id}" \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/instance/${instance_id}"
+instance_id=""
+
+curl --fail-with-body --silent --max-time 120 -X DELETE \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/subnet/${subnet_id}" \
+  -H "Authorization: Bearer ${token}" >/dev/null
+wait_for_absence "Subnet ${subnet_id}" \
+  "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/subnet/${subnet_id}"
+subnet_id=""
+
 curl --fail-with-body --silent --max-time 30 -X DELETE \
   "http://localhost:${API_FORWARD_PORT}/v2/org/test-org/nico/vpc/${vpc_id}" \
   -H "Authorization: Bearer ${token}" >/dev/null
+vpc_id=""
 for _ in {1..60}; do
   if ! resource_group_exists "${resource_group}"; then
-    printf 'NICo direct DPS VPC lifecycle succeeded for Tenant %s\n' \
+    printf 'NICo DPS VPC and Instance create/update/delete lifecycle succeeded for Tenant %s\n' \
       "${tenant_id}"
     exit 0
   fi
