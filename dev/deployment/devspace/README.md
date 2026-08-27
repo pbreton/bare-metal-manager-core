@@ -190,6 +190,95 @@ dependencies. Later builds reuse the verified checkout under `.devspace/`.
 The `dsx-exchange` and `core-only` profiles are incompatible because the
 gateway requires the local REST API and Keycloak deployments.
 
+### DPS simulator profile
+
+The `dps-simulator` profile deploys the internal DPS server beside
+`nico-machine-a-tron` for direct-integration testing:
+
+```bash
+devspace deploy --profile dps-simulator
+```
+
+This profile requires SSH access to
+`gitlab-master.nvidia.com:12051/dcgm/dcpower/dcpower.git`. It checks out DPS
+`0.8.0` at commit `15dd8ab0fd058d82e7303ca8781659c3c016f7d7` and initializes
+the `third_party/zapp` submodule at the revision recorded by that commit. The
+checkout, pinned build tools, and generated DPS sources remain under the
+ignored `.devspace/` directory. DPS source and generated interfaces are not
+copied into this repository.
+
+The build requires Git, Go 1.26.2 or later in the Go 1.26 release line,
+Docker, and access to the Go modules referenced by DPS. It installs pinned
+protobuf, mock, SQLC, and OpenAPI generators under `.devspace/`, builds the
+`dps-server`, `dpsctl`, and `dps-bmc-simulator` binaries for the active Docker
+daemon architecture, and packages them in digest-pinned distroless images. It
+also builds a host-native `dpsctl` beneath `.devspace/` for post-deploy setup.
+The local runtime Dockerfiles and BMC simulator configuration are adapted from
+their counterparts in the pinned DPS checkout; they are kept here to pin the
+runtime base image and make the simulator listen on the Kubernetes pod network,
+and their provenance is recorded in each file.
+
+The profile deploys the upstream DPS and DPS BMC simulator Helm charts in
+namespace `nico-dps`. The DPS chart enables only the server and an ephemeral
+PostgreSQL instance; it disables the DPS UI, ingress, Gateway API routes, PRS,
+LDAP, Nautobot, telemetry providers and collectors, monitoring, and persistent
+PostgreSQL storage. The server uses the chart's warning-only development
+authentication because LDAP is absent. The BMC chart enables only one shared
+GB200 simulator endpoint and its development credential secret.
+
+The three private images use stable local-only tags. On kind, the pre-deploy
+hook loads rebuilt images and restarts existing DPS server and BMC simulator
+workloads so repeated deployments cannot continue running an older image under
+the same tag.
+
+After the normal REST setup reports a complete machine-a-tron inventory, the
+profile reads the actual machine IDs from NICo and imports an active `nico-dev`
+DPS topology. The topology uses `DGX_GB200`, matching the DevSpace
+machine-a-tron hardware fixture, and exposes the `low`, `balanced`, and
+`performance` policies. Every DPS machine points to the shared GB200 Redfish
+simulator for policy enforcement while machine-a-tron remains the source of
+NICo inventory. The node percentages span 60, 80, and 100. CPU_0 in the
+bundled GB200 Redfish mock advertises a 300 W maximum even though the DPS `DGX_GB200`
+model permits 420 W. The private image build stages the pinned Redfish mockups
+in ignored build output and aligns the inconsistent CPU_0 maximum with the model
+before packaging. It also aligns both processor-module minima from 500 W to
+450 W: the model's 900 W idle node policy is divided equally between the two
+modules. These fixture adjustments do not modify the verified DPS checkout. Re-running
+setup deactivates and replaces the harness-owned topology before reactivation.
+Replacement avoids a DPS 0.8.0 `dpsctl topology update` defect that sends the
+create operation and fails on the existing name. Setup fails unless DPS reports
+successful policy application for every machine.
+
+The simulator profile and `core-only` are mutually exclusive because DPS
+integration tests require the REST deployment. The simulator is absent from
+the default DevSpace configuration. When locally merged with the direct DPS
+integration branch, the profile configures NICo's REST deployment for `dps`
+mode. A test-only TLS proxy terminates verified TLS in front of DPS 0.8.0's
+plaintext in-cluster gRPC listener. Before deployment, the profile creates a
+private local CA and server certificate beneath ignored `.devspace/` output,
+then applies the proxy key pair in `nico-dps` and a REST client Secret containing
+the CA plus a non-empty development bearer token in `nico-rest`. DPS runs in its
+warning-only development authentication mode because this profile does not
+deploy LDAP; the token verifies NICo's bearer-header transport, not production
+OIDC authorization.
+
+After the topology is active, setup enables the Site's `dpsPowerManagement`
+capability and ensures the local Tenant has an Allocation for the Site. The
+harness-owned Allocation reserves a `/24` from a `198.18.0.0/15` provider block,
+which is reserved for benchmarking. Setup then performs an initial lifecycle
+smoke test through the REST API. It creates a VPC with a power resource group,
+confirms the group appears in DPS, waits for the VPC to become ready, deletes the
+VPC, and confirms DPS removes the group. The smoke test requires a clean
+deployment and fails rather than deleting an existing `dps-e2e-vpc` or
+`nico-e2e-<site-id>` resource. Repeated setup reuses its Allocation and provider
+IP Block.
+
+By default, setup obtains topology machine IDs from the REST inventory. To run
+the DPS lifecycle smoke independently while diagnosing an incomplete local
+inventory, set `LOCAL_DEV_DPS_MACHINE_IDS_JSON` to a non-empty JSON array of
+machine ID strings. This test-only override affects the DPS topology fixture;
+it does not add the machines to NICo or bypass Site capability checks.
+
 The post-deploy setup uses temporary port-forwards to register the site and verifies that machines from Core are visible through the REST API. To keep the REST API and Keycloak available on localhost after `devspace deploy` exits, run these in separate terminals:
 
 ```bash

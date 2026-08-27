@@ -33,6 +33,7 @@ vars:
     source: env
     default: "18080"
   LOCAL_DEV_DSX_GATEWAY_PROFILE: "0"
+  LOCAL_DEV_DPS_SIMULATOR_PROFILE: "0"
 
 pipelines:
   build: |-
@@ -67,6 +68,11 @@ functions:
       nico-rest-cert-manager
     if [ "${LOCAL_DEV_DSX_GATEWAY_PROFILE}" = "1" ]; then
       build_images nico-mcp
+    fi
+    if [ "${LOCAL_DEV_DPS_SIMULATOR_PROFILE}" = "1" ]; then
+      # Custom-build state can outlive the local Docker image. The Go and
+      # Docker caches keep this inexpensive when the pinned source is unchanged.
+      build_images dps-simulator --force-rebuild
     fi
     # Custom-build onChange state can outlive the corresponding local Docker
     # image. Always invoke these inexpensive second-stage builds so the tags
@@ -359,6 +365,147 @@ hooks:
         dev/deployment/devspace/setup-rest-integration.sh
 
 profiles:
+  - name: dps-simulator
+    patches:
+      - op: replace
+        path: vars.LOCAL_DEV_DPS_SIMULATOR_PROFILE
+        value: "1"
+      - op: add
+        path: images.dps-simulator
+        value:
+          image: dps/dps-server
+          tags:
+            - nico-dev
+          custom:
+            command: |-
+              dev/deployment/devspace/build-dps-simulator.sh \
+                ${runtime.images.dps-simulator.image}:${runtime.images.dps-simulator.tag}
+            onChange:
+              - dev/deployment/devspace/build-dps-simulator.sh
+              - dev/deployment/devspace/Dockerfile.dps-bmc-simulator
+              - dev/deployment/devspace/Dockerfile.dps-bmc-simulator.dockerignore
+              - dev/deployment/devspace/Dockerfile.dps-simulator
+              - dev/deployment/devspace/Dockerfile.dps-tls-proxy
+              - dev/deployment/devspace/Dockerfile.dps-tls-proxy.dockerignore
+              - dev/deployment/devspace/Dockerfile.dpsctl
+              - dev/deployment/devspace/Dockerfile.dpsctl.dockerignore
+              - dev/deployment/devspace/dps-bmc-simulator-config.yaml
+              - dev/deployment/devspace/dps-bmc-simulator-values.yaml
+              - dev/deployment/devspace/dps-buf.gen.api.yaml
+              - dev/deployment/devspace/dps-buf.gen.go.yaml
+              - dev/deployment/devspace/dps-tls-openssl.cnf
+              - dev/deployment/devspace/dps-tls-proxy.go
+              - dev/deployment/devspace/dps-tls-proxy_test.go
+              - dev/deployment/devspace/dps-tls-proxy/Chart.yaml
+              - dev/deployment/devspace/dps-tls-proxy/values.yaml
+              - dev/deployment/devspace/dps-tls-proxy/templates/resources.yaml
+              - dev/deployment/devspace/prepare-dps-client-security.sh
+              - dev/deployment/devspace/prepare-dps-simulator.sh
+              - dev/deployment/devspace/render-dps-topology.sh
+              - dev/deployment/devspace/setup-dps-simulator.sh
+          skipPush: true
+      - op: add
+        path: deployments.dps-simulator
+        value:
+          namespace: nico-dps
+          updateImageTags: false
+          helm:
+            chart:
+              path: ./.devspace/dps-0.8.0/helm/dps
+            valuesFiles:
+              - dev/deployment/devspace/dps-simulator-values.yaml
+            values:
+              dps:
+                image:
+                  repository: ${runtime.images.dps-simulator.image}
+                  tag: ${runtime.images.dps-simulator.tag}
+                  pullPolicy: IfNotPresent
+      - op: add
+        path: deployments.dps-bmc-simulator
+        value:
+          namespace: nico-dps
+          updateImageTags: false
+          helm:
+            chart:
+              path: ./.devspace/dps-0.8.0/helm/dps-bmc-simulator
+            valuesFiles:
+              - dev/deployment/devspace/dps-bmc-simulator-values.yaml
+      - op: add
+        path: deployments.dps-tls-proxy
+        value:
+          namespace: nico-dps
+          updateImageTags: false
+          helm:
+            chart:
+              path: ./dev/deployment/devspace/dps-tls-proxy
+      - op: add
+        path: deployments.nico-rest.helm.values.nico-rest-api.config.powerProvisioning
+        value:
+          dps:
+            enabled: true
+            endpoint: dps-tls-proxy.nico-dps.svc.cluster.local:8443
+            requestTimeout: 15s
+            tokenPath: /var/secrets/dps/token
+            tls:
+              caPath: /var/secrets/dps/ca.crt
+              serverName: dps-tls-proxy.nico-dps.svc.cluster.local
+      - op: add
+        path: deployments.nico-rest.helm.values.nico-rest-api.secrets
+        value:
+          dps: dps-client-credentials
+      - op: add
+        path: hooks
+        value:
+          name: prepare-dps-simulator-source
+          events: ["before:build"]
+          command: dev/deployment/devspace/prepare-dps-simulator.sh >/dev/null
+      - op: add
+        path: hooks
+        value:
+          name: load-dps-simulator-image-into-local-cluster
+          events: ["before:deploy"]
+          command: |-
+            CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
+            case "$CONTEXT" in
+              kind-*)
+                echo "Loading the DPS simulator image into the kind cluster..."
+                kind load docker-image --name "${CONTEXT#kind-}" \
+                  "${runtime.images.dps-simulator.image}:${runtime.images.dps-simulator.tag}" \
+                  "dps/dpsctl:nico-dev" \
+                  "dps/dps-bmc-simulator:nico-dev" \
+                  "dps/dps-tls-proxy:nico-dev"
+                if kubectl get statefulset/dps-simulator-server \
+                    -n nico-dps >/dev/null 2>&1; then
+                  kubectl rollout restart statefulset/dps-simulator-server \
+                    -n nico-dps
+                fi
+                if kubectl get deployment/bmc-gb200-simulator \
+                    -n nico-dps >/dev/null 2>&1; then
+                  kubectl rollout restart deployment/bmc-gb200-simulator \
+                    -n nico-dps
+                fi
+                if kubectl get deployment/dps-tls-proxy \
+                    -n nico-dps >/dev/null 2>&1; then
+                  kubectl rollout restart deployment/dps-tls-proxy \
+                    -n nico-dps
+                fi
+                ;;
+            esac
+      - op: add
+        path: hooks
+        value:
+          name: prepare-dps-client-security
+          events: ["before:deploy"]
+          command: dev/deployment/devspace/prepare-dps-client-security.sh
+      - op: add
+        path: hooks
+        value:
+          name: setup-dps-simulator
+          events: ["after:deploy"]
+          command: |-
+            LOCAL_DEV_REST_API_FORWARD_PORT=${LOCAL_DEV_REST_API_FORWARD_PORT} \
+            LOCAL_DEV_KEYCLOAK_FORWARD_PORT=${LOCAL_DEV_KEYCLOAK_FORWARD_PORT} \
+              dev/deployment/devspace/setup-dps-simulator.sh
   - name: dsx-exchange
     patches:
       - op: replace
@@ -497,8 +644,9 @@ profiles:
           name: reject-dsx-gateway-with-core-only
           events: ["before:build", "before:deploy"]
           command: |-
-            if [ "${LOCAL_DEV_DSX_GATEWAY_PROFILE}" = "1" ]; then
-              echo "the dsx-exchange and core-only profiles cannot be combined" >&2
+            if [ "${LOCAL_DEV_DSX_GATEWAY_PROFILE}" = "1" ] || \
+                [ "${LOCAL_DEV_DPS_SIMULATOR_PROFILE}" = "1" ]; then
+              echo "the dsx-exchange and dps-simulator profiles require REST and cannot be combined with core-only" >&2
               exit 1
             fi
       - op: replace

@@ -1,0 +1,9 @@
+# Adapted from cmd/dps-server/Dockerfile in the internally pinned DPS 0.8.0
+# source checkout. Keep this provenance note when updating the DPS revision.
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:1b7b9f0f0e0a1d2155f531db587cc48ec26aaf97ab64364225f5bf18a054e66a
+
+ARG BINARY_ARCH
+USER nonroot
+EXPOSE 8080
+COPY --chown=root:root --chmod=0755 target/dist/dps-server_linux_${BINARY_ARCH}/dps-server /dps-server
+CMD ["/dps-server"]

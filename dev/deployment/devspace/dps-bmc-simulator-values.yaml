@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+fullnameOverride: dps-bmc-simulator
+
+dpsBmcSimulator:
+  image:
+    repository: dps/dps-bmc-simulator
+    tag: nico-dev
+    pullPolicy: IfNotPresent
+    imagePullSecrets: []
+
+  h100Mocks:
+    enabled: false
+  b200Mocks:
+    enabled: false
+  b300Mocks:
+    enabled: false
+  gb300Mocks:
+    enabled: false
+  streamingMocks:
+    enabled: false
+  surrogateMocks:
+    enabled: false
+
+  gb200Mocks:
+    enabled: true
+    createSecrets: true
+    serviceName: bmc-gb200-simulator
+    nodes:
+      - nico-dev-bmc
+    serviceMonitor:
+      enabled: false
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  hostnameResolution: svc-per-hostname
+  service:
+    port: 443
+    containerPort: 8443

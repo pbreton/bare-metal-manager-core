@@ -1,0 +1,5 @@
+**
+!target/
+!target/dist/
+!target/dist/dpsctl_linux_*/
+!target/dist/dpsctl_linux_*/dpsctl
