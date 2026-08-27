@@ -441,8 +441,8 @@ profiles:
       - op: add
         path: deployments.nico-rest.helm.values.nico-rest-api.config.powerProvisioning
         value:
-          mode: dps
           dps:
+            enabled: true
             endpoint: dps-tls-proxy.nico-dps.svc.cluster.local:8443
             requestTimeout: 15s
             tokenPath: /var/secrets/dps/token
