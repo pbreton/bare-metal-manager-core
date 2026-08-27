@@ -233,6 +233,26 @@ EOF
   chmod 0644 "${OPENSSL_COMPAT_CONFIG}"
 }
 
+configure_hashicorp_apt_source() {
+  local keyring=/usr/share/keyrings/hashicorp-archive-keyring.gpg
+  local list=/etc/apt/sources.list.d/hashicorp.list
+
+  # Older revisions created a deb822 source alongside the canonical .list
+  # file. APT rejects duplicate entries when only one declares Signed-By.
+  rm -f /etc/apt/sources.list.d/hashicorp.sources
+
+  if [[ ! -s "${keyring}" ]]; then
+    # The base-package installation provides gpg. Until the key is available,
+    # leave HashiCorp disabled so its repository cannot break apt-get update.
+    rm -f "${list}"
+    return
+  fi
+
+  cat >"${list}" <<EOF
+deb [signed-by=${keyring}] https://apt.releases.hashicorp.com ${VERSION_CODENAME} main
+EOF
+}
+
 install_base_packages() {
   log "Installing native build and test dependencies for ${MACHINE_ARCH}"
   apt-get update
@@ -462,11 +482,21 @@ install_grpcurl() {
 }
 
 install_vault() {
-  local vault_path installed_version
+  local keyring vault_path installed_version
+  keyring=/usr/share/keyrings/hashicorp-archive-keyring.gpg
   vault_path="$(command -v vault 2>/dev/null || true)"
   installed_version="$(
     dpkg-query -W -f='${Version}' vault 2>/dev/null || true
   )"
+  if [[ ! -s "${keyring}" || \
+    -z "${vault_path}" || \
+    "$(readlink -f "${vault_path}" 2>/dev/null || true)" != "/usr/bin/vault" || \
+    "${installed_version}" != "${VAULT_VERSION}" ]]; then
+    curl -fsSL https://apt.releases.hashicorp.com/gpg |
+      gpg --dearmor --yes -o "${keyring}"
+  fi
+  configure_hashicorp_apt_source
+
   if [[ -n "${vault_path}" && \
     "$(readlink -f "${vault_path}")" == "/usr/bin/vault" && \
     "${installed_version}" == "${VAULT_VERSION}" ]]; then
@@ -475,15 +505,6 @@ install_vault() {
   fi
 
   log "Installing Vault ${VAULT_VERSION}"
-  curl -fsSL https://apt.releases.hashicorp.com/gpg |
-    gpg --dearmor --yes -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-  cat >/etc/apt/sources.list.d/hashicorp.sources <<EOF
-Types: deb
-URIs: https://apt.releases.hashicorp.com
-Suites: ${VERSION_CODENAME}
-Components: main
-  Signed-By: /usr/share/keyrings/hashicorp-archive-keyring.gpg
-EOF
   apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y \
     --allow-change-held-packages "vault=${VAULT_VERSION}"
@@ -752,6 +773,7 @@ EOF
 
 main() {
   configure_openssl_tls
+  configure_hashicorp_apt_source
   install_base_packages
   install_docker
   install_go
