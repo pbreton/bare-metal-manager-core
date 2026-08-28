@@ -536,11 +536,9 @@ configure_kea_apparmor() {
     {
       printf '# Managed by prepare-ubuntu-host-for-dev.sh\n'
       printf '/tmp/** rwk,\n'
-      printf '%s/target/debug/*.so mr,\n' "${REPO_DIR}"
-      printf '%s/target/debug/deps/*.so mr,\n' "${REPO_DIR}"
+      printf '%s/target/**/libdhcp.so mr,\n' "${REPO_DIR}"
       if [[ "${canonical_repo_dir}" != "${REPO_DIR}" ]]; then
-        printf '%s/target/debug/*.so mr,\n' "${canonical_repo_dir}"
-        printf '%s/target/debug/deps/*.so mr,\n' "${canonical_repo_dir}"
+        printf '%s/target/**/libdhcp.so mr,\n' "${canonical_repo_dir}"
       fi
     } >"${local_profile}"
     apparmor_parser -r "${profile}"
