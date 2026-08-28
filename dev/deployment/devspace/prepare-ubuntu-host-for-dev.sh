@@ -25,6 +25,7 @@ VAULT_VERSION="1.21.4-1"
 CORE_POSTGRES_IMAGE="postgres:14.5-alpine"
 REST_POSTGRES_IMAGE="postgres:14.4-alpine"
 CORE_POSTGRES_CONTAINER="nico-core-test-postgres"
+CORE_POSTGRES_MAX_CONNECTIONS=1000
 SCRIPT_START_SECONDS="${SECONDS}"
 
 format_duration() {
@@ -678,18 +679,25 @@ start_core_postgres() {
     return
   fi
 
-  local container_exists=0 port_bindings=""
+  local container_exists=0 port_bindings="" container_command=""
   if run_as_user docker container inspect "${CORE_POSTGRES_CONTAINER}" \
     >/dev/null 2>&1; then
     container_exists=1
     port_bindings="$(run_as_user docker container inspect \
       --format '{{json .HostConfig.PortBindings}}' \
       "${CORE_POSTGRES_CONTAINER}" 2>/dev/null || true)"
+    container_command="$(run_as_user docker container inspect \
+      --format '{{json .Config.Cmd}}' \
+      "${CORE_POSTGRES_CONTAINER}" 2>/dev/null || true)"
     if ! jq -e '
       .["5432/tcp"] | type == "array" and length == 1 and
       all(.[]; .HostIp == "127.0.0.1" and .HostPort == "5432")
-    ' <<<"${port_bindings}" >/dev/null 2>&1; then
-      log "Recreating ${CORE_POSTGRES_CONTAINER} with a loopback-only port binding"
+    ' <<<"${port_bindings}" >/dev/null 2>&1 ||
+      ! jq -e --arg setting \
+        "max_connections=${CORE_POSTGRES_MAX_CONNECTIONS}" \
+        'index($setting) != null' \
+        <<<"${container_command}" >/dev/null 2>&1; then
+      log "Recreating ${CORE_POSTGRES_CONTAINER} with the required test configuration"
       run_as_user docker rm -f "${CORE_POSTGRES_CONTAINER}" >/dev/null
       container_exists=0
     fi
@@ -711,6 +719,7 @@ start_core_postgres() {
       -c fsync=off \
       -c synchronous_commit=off \
       -c full_page_writes=off \
+      -c "max_connections=${CORE_POSTGRES_MAX_CONNECTIONS}" \
       >/dev/null
   fi
 
