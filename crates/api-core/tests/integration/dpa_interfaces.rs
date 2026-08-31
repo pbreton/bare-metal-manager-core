@@ -99,7 +99,7 @@ async fn dpa_api_test_cases(pool: PgPool) -> Result<(), Box<dyn std::error::Erro
 }
 
 #[sqlx_test]
-async fn find_machines_includes_spx_capabilities(
+async fn find_machines_includes_spectrum_x_capabilities(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = TestHarness::builder(pool).build().await;
@@ -183,7 +183,7 @@ async fn find_machines_includes_spx_capabilities(
         .into_inner();
 
     assert_eq!(response.machines.len(), 3);
-    let get_spx_capabilities = |machine: &rpc::forge::Machine| {
+    let get_spectrum_x_capabilities = |machine: &rpc::forge::Machine| {
         machine
             .status
             .as_ref()
@@ -191,7 +191,7 @@ async fn find_machines_includes_spx_capabilities(
             .into_iter()
             .flat_map(|capabilities| &capabilities.network)
             .filter(|capability| {
-                capability.device_type == Some(MachineCapabilityDeviceType::Spx as i32)
+                capability.device_type == Some(MachineCapabilityDeviceType::SpectrumX as i32)
             })
             .map(|capability| (capability.name.clone(), capability.count))
             .collect::<Vec<_>>()
@@ -202,14 +202,14 @@ async fn find_machines_includes_spx_capabilities(
         .iter()
         .find(|machine| machine.id == Some(dpu_machine_id))
         .expect("DPU machine");
-    assert!(get_spx_capabilities(dpu_machine).is_empty());
+    assert!(get_spectrum_x_capabilities(dpu_machine).is_empty());
 
     let machine_without_devices = response
         .machines
         .iter()
         .find(|machine| machine.id == Some(machine_without_devices.host.id))
         .expect("machine without devices");
-    assert!(get_spx_capabilities(machine_without_devices).is_empty());
+    assert!(get_spectrum_x_capabilities(machine_without_devices).is_empty());
 
     let machine_with_devices = response
         .machines
@@ -217,7 +217,7 @@ async fn find_machines_includes_spx_capabilities(
         .find(|machine| machine.id == Some(machine_with_devices.host.id))
         .expect("machine with devices");
     assert_eq!(
-        get_spx_capabilities(machine_with_devices),
+        get_spectrum_x_capabilities(machine_with_devices),
         vec![
             ("BlueField-3".to_string(), 1),
             ("ConnectX-7".to_string(), 2),

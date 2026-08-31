@@ -268,8 +268,8 @@ pub enum MachineCapabilityDeviceType {
     Unknown,
     Dpu,
     NvLink,
-    /// Identifies an SPX network capability.
-    Spx,
+    /// Identifies a SpectrumX network capability.
+    SpectrumX,
 }
 
 impl fmt::Display for MachineCapabilityDeviceType {
@@ -278,7 +278,7 @@ impl fmt::Display for MachineCapabilityDeviceType {
             MachineCapabilityDeviceType::Unknown => write!(f, "UNKNOWN"),
             MachineCapabilityDeviceType::Dpu => write!(f, "DPU"),
             MachineCapabilityDeviceType::NvLink => write!(f, "NVLINK"),
-            MachineCapabilityDeviceType::Spx => write!(f, "SPX"),
+            MachineCapabilityDeviceType::SpectrumX => write!(f, "SpectrumX"),
         }
     }
 }
@@ -746,8 +746,8 @@ mod tests {
                 MachineCapabilityDeviceType::NvLink => "NVLINK".to_string(),
             }
 
-            "spx" {
-                MachineCapabilityDeviceType::Spx => "SPX".to_string(),
+            "spectrum_x" {
+                MachineCapabilityDeviceType::SpectrumX => "SpectrumX".to_string(),
             }
         );
     }
