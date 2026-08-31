@@ -672,16 +672,55 @@ pull_postgres_images() {
   done
 }
 
+create_core_postgres() {
+  log "Starting PostgreSQL for Rust tests on localhost:5432"
+  run_as_user docker run -d \
+    --restart unless-stopped \
+    --name "${CORE_POSTGRES_CONTAINER}" \
+    -p 127.0.0.1:5432:5432 \
+    -e POSTGRES_USER=postgres \
+    -e POSTGRES_PASSWORD=admin \
+    -e POSTGRES_DB=forgetest \
+    "${CORE_POSTGRES_IMAGE}" \
+    -c fsync=off \
+    -c synchronous_commit=off \
+    -c full_page_writes=off \
+    -c "max_connections=${CORE_POSTGRES_MAX_CONNECTIONS}" \
+    >/dev/null
+}
+
+core_postgres_port_is_published() {
+  local effective_port_bindings
+  effective_port_bindings="$(run_as_user docker container inspect \
+    --format '{{json .NetworkSettings.Ports}}' \
+    "${CORE_POSTGRES_CONTAINER}" 2>/dev/null || true)"
+  jq -e '
+    .["5432/tcp"] | type == "array" and length == 1 and
+    all(.[]; .HostIp == "127.0.0.1" and .HostPort == "5432")
+  ' <<<"${effective_port_bindings}" >/dev/null 2>&1
+}
+
+wait_for_core_postgres_port() {
+  local _attempt
+  for _attempt in {1..10}; do
+    if core_postgres_port_is_published; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 start_core_postgres() {
   if [[ "${SKIP_CORE_POSTGRES}" == "1" ]]; then
     return
   fi
 
-  local container_exists=0 port_bindings="" container_command=""
+  local container_exists=0 configured_port_bindings="" container_command=""
   if run_as_user docker container inspect "${CORE_POSTGRES_CONTAINER}" \
     >/dev/null 2>&1; then
     container_exists=1
-    port_bindings="$(run_as_user docker container inspect \
+    configured_port_bindings="$(run_as_user docker container inspect \
       --format '{{json .HostConfig.PortBindings}}' \
       "${CORE_POSTGRES_CONTAINER}" 2>/dev/null || true)"
     container_command="$(run_as_user docker container inspect \
@@ -690,7 +729,7 @@ start_core_postgres() {
     if ! jq -e '
       .["5432/tcp"] | type == "array" and length == 1 and
       all(.[]; .HostIp == "127.0.0.1" and .HostPort == "5432")
-    ' <<<"${port_bindings}" >/dev/null 2>&1 ||
+    ' <<<"${configured_port_bindings}" >/dev/null 2>&1 ||
       ! jq -e --arg setting \
         "max_connections=${CORE_POSTGRES_MAX_CONNECTIONS}" \
         'index($setting) != null' \
@@ -705,31 +744,27 @@ start_core_postgres() {
     log "Starting existing ${CORE_POSTGRES_CONTAINER}"
     run_as_user docker start "${CORE_POSTGRES_CONTAINER}" >/dev/null
   else
-    log "Starting PostgreSQL for Rust tests on localhost:5432"
-    run_as_user docker run -d \
-      --restart unless-stopped \
-      --name "${CORE_POSTGRES_CONTAINER}" \
-      -p 127.0.0.1:5432:5432 \
-      -e POSTGRES_USER=postgres \
-      -e POSTGRES_PASSWORD=admin \
-      -e POSTGRES_DB=forgetest \
-      "${CORE_POSTGRES_IMAGE}" \
-      -c fsync=off \
-      -c synchronous_commit=off \
-      -c full_page_writes=off \
-      -c "max_connections=${CORE_POSTGRES_MAX_CONNECTIONS}" \
-      >/dev/null
+    create_core_postgres
+  fi
+
+  if ! wait_for_core_postgres_port; then
+    log "Recreating ${CORE_POSTGRES_CONTAINER} because its host port is not active"
+    run_as_user docker rm -f "${CORE_POSTGRES_CONTAINER}" >/dev/null
+    create_core_postgres
+    wait_for_core_postgres_port || \
+      die "Docker did not publish PostgreSQL on localhost:5432"
   fi
 
   local _attempt
   for _attempt in {1..60}; do
-    if run_as_user docker exec "${CORE_POSTGRES_CONTAINER}" \
-      pg_isready -U postgres -d forgetest >/dev/null 2>&1; then
+    if run_as_user pg_isready \
+      -h 127.0.0.1 -p 5432 -U postgres -d forgetest \
+      >/dev/null 2>&1; then
       return
     fi
     sleep 1
   done
-  die "Core test PostgreSQL did not become ready"
+  die "Core test PostgreSQL did not become reachable on localhost:5432"
 }
 
 fetch_dependencies() {
@@ -757,8 +792,10 @@ verify_setup() {
     >/dev/null
 
   if [[ "${SKIP_CORE_POSTGRES}" != "1" ]]; then
-    run_as_user docker exec "${CORE_POSTGRES_CONTAINER}" \
-      pg_isready -U postgres -d forgetest
+    core_postgres_port_is_published || \
+      die "Docker is not publishing PostgreSQL on localhost:5432"
+    run_as_user pg_isready \
+      -h 127.0.0.1 -p 5432 -U postgres -d forgetest
   fi
 }
 
